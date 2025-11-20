@@ -11,13 +11,14 @@ function randomCode() {
   return pad4(Math.floor(Math.random() * 10000))
 }
 
-export default function Lobby() {
+export default function Lobby({ onStartPassPlay }) {
   const [user, setUser] = useState(null)
   const [mode, setMode] = useState('home')
   const [code, setCode] = useState('')
   const [game, setGame] = useState(null)
   const [isHost, setIsHost] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [aiCount, setAiCount] = useState(0)
 
   useEffect(() => {
     if (!hasFirebase || !auth) return
@@ -103,6 +104,35 @@ export default function Lobby() {
             <div className="grid grid-cols-2 gap-3">
               <button className="py-3 rounded bg-blue-600 text-white" onClick={createGame}>Create Game</button>
               <button className="py-3 rounded bg-zinc-800 text-white" onClick={() => setMode('join')}>Join Game</button>
+            </div>
+            <div className="mt-2 rounded border border-zinc-800 p-3 space-y-3">
+              <button
+                type="button"
+                className="w-full py-2 rounded bg-green-700 text-white hover:bg-green-600 text-sm font-medium"
+                onClick={() => onStartPassPlay && onStartPassPlay(aiCount)}
+              >
+                Pass &amp; Play
+              </button>
+              <div className="flex items-center justify-center gap-3 text-xs text-zinc-200">
+                <button
+                  type="button"
+                  className="w-7 h-7 flex items-center justify-center rounded bg-zinc-800 text-lg leading-none"
+                  onClick={() => setAiCount((n) => Math.max(0, n - 1))}
+                >
+                  −
+                </button>
+                <div className="flex flex-col items-center">
+                  <span className="uppercase tracking-wide text-[10px] text-zinc-400">Number of AI Players</span>
+                  <span className="text-sm font-semibold">{aiCount}</span>
+                </div>
+                <button
+                  type="button"
+                  className="w-7 h-7 flex items-center justify-center rounded bg-zinc-800 text-lg leading-none"
+                  onClick={() => setAiCount((n) => Math.min(4, n + 1))}
+                >
+                  +
+                </button>
+              </div>
             </div>
           </div>
         )}

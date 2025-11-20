@@ -228,16 +228,13 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
   })
 
   const homes = Object.entries(HOME_PATHS).flatMap(([color, path]) => {
-    const last = path.length - 1
     return path.map((p, i) => {
-      const isFinal = i === last
       const base = 'absolute w-3 h-3 sm:w-4 sm:h-4 rounded-md border bg-zinc-900/80'
-      const colorClasses = isFinal ? finalHomeColors[color] : homeColors[color]
-      const ring = isFinal ? ' ring-2 ring-current' : ''
+      const colorClasses = homeColors[color]
       return (
         <div
           key={`${color}-home-${i}`}
-          className={`${base} ${colorClasses || ''}${ring}`}
+          className={`${base} ${colorClasses || ''}`}
           style={{ left: `${p.x}%`, top: `${p.y}%`, transform: 'translate(-50%, -50%)' }}
         />
       )
@@ -254,7 +251,11 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">
-        Slides are tinted squares on the edge; colored inner lanes are home paths. Reach the bright final square to get a pawn home.
+        Cards 0, 1, or 2 can move a pawn out of Start.
+        <br />
+        Landing on any slide space moves you to the end and bumps others. 
+        <br />
+        Colored inner lanes are safe zones – get all four of your pawns into your lane to win.
       </div>
     </div>
   )

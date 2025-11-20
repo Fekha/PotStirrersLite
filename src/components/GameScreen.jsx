@@ -44,6 +44,9 @@ function playBeep(type) {
   else if (type === 'win') {
     freq = 700
     duration = 0.25
+  } else if (type === 'turn') {
+    freq = 580
+    duration = 0.18
   }
 
   const now = ctx.currentTime
@@ -105,17 +108,18 @@ function getMovableFor(card, color, pawnsByColor) {
     const frames = getMoveFrames(color, pawn, numeric)
     if (!frames.length) return
 
-    // Home lane rule: you cannot land on (or pass through) a square in your
-    // own safety/home path that is already occupied by one of your pawns.
-    const blocked = frames.some((frame) => {
-      if (!(frame.region === 'safety' || frame.region === 'home')) return false
-      return list.some((other, j) => {
+    // Home lane rule: you cannot *land* on a safety/home square that already
+    // has one of your pawns, but you may jump over your own pieces while
+    // moving through the lane.
+    const last = frames[frames.length - 1]
+    const blocked =
+      (last.region === 'safety' || last.region === 'home') &&
+      list.some((other, j) => {
         if (j === idx) return false
         if (!(other && (other.region === 'safety' || other.region === 'home'))) return false
         if (typeof other.safetyIndex !== 'number') return false
-        return other.safetyIndex === frame.safetyIndex
+        return other.safetyIndex === last.safetyIndex
       })
-    })
 
     if (!blocked) indices.push(idx)
   })
@@ -259,9 +263,15 @@ function simulateMove(color, pawn, steps) {
 function getWinner(pawns) {
   for (const color of COLORS) {
     const list = pawns[color] || []
-    if (list.length && list.every((p) => p && p.region === 'home')) {
-      return color
-    }
+    if (!list.length) continue
+
+    const inSafe = list.filter(
+      (p) => p && (p.region === 'safety' || p.region === 'home') && typeof p.safetyIndex === 'number'
+    )
+
+    // New win condition: all four pawns in the safety/home lane. There are 6
+    // lane tiles; you just need to occupy 4 of them with your pawns.
+    if (inSafe.length === 4) return color
   }
   return null
 }
@@ -315,7 +325,7 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
   return state
 }
 
-export default function GameScreen() {
+export default function GameScreen({ aiColors = [] } = {}) {
   const [deck, setDeck] = useState(() => buildDeck())
   const [currentCard, setCurrentCard] = useState(null)
   const [turnIndex, setTurnIndex] = useState(0)
@@ -376,6 +386,121 @@ export default function GameScreen() {
       return deck
     })
   }, [])
+
+  // --- Simple AI opponents ---
+  useEffect(() => {
+    if (winner || isAnimating) return
+
+    const aiColor = currentColor
+    if (!aiColors || !aiColors.includes(aiColor)) return
+
+    // Need a hand to act on, and no card already selected this turn.
+    if (!hand.length) return
+    if (selectedIndex !== null || currentCard !== null) return
+
+    const list = pawns[aiColor] || []
+    const entryIndex = START_INDEX[aiColor]
+
+    // 1) Highest priority: use a Sorry card if possible.
+    const sorryIndex = hand.findIndex((c) => c === 'Sorry')
+    if (sorryIndex !== -1) {
+      const myList = pawns[aiColor] || []
+      const hasStart = myList.some(isInStart)
+      if (hasStart) {
+        // Find the first opponent pawn on the track to target.
+        for (const oppColor of COLORS) {
+          if (oppColor === aiColor) continue
+          const oppList = pawns[oppColor] || []
+          const targetIdx = oppList.findIndex(isOnTrack)
+          if (targetIdx !== -1) {
+            setCurrentCard('Sorry')
+            setSelectedIndex(sorryIndex)
+            playSorryMove(aiColor, oppColor, targetIdx, sorryIndex)
+            return
+          }
+        }
+      }
+    }
+
+    // 2) Next, consider numeric cards (0,1,2,3,4,5,7,8,10,11,12).
+    let best = null
+    hand.forEach((card, index) => {
+      if (typeof card !== 'number') return
+
+      const moveInfo = getMovableFor(card, aiColor, pawns)
+      if (!moveInfo) return
+
+      const indices = moveInfo.indices || []
+      if (!indices.length) return
+
+      // Prefer moves that take a pawn out of Start.
+      let pawnIndex = null
+      for (const pi of indices) {
+        const pawn = list[pi]
+        if (pawn && pawn.region === 'start') {
+          pawnIndex = pi
+          break
+        }
+      }
+      if (pawnIndex === null) pawnIndex = indices[0]
+
+      const pawn = list[pawnIndex]
+      if (!pawn) return
+
+      const isZeroCard = card === 0
+      const numeric = isZeroCard ? 1 : Number(card)
+      const frames = getMoveFrames(aiColor, pawn, numeric)
+      if (!frames.length) return
+      const last = frames[frames.length - 1]
+
+      // Detect landing on one of our own pawns (self-bump), either from
+      // Start or from the board. We treat this as lowest priority.
+      let landsOnOwn = false
+      if (last.region === 'track' && typeof last.index === 'number') {
+        landsOnOwn = list.some((other, j) => {
+          if (j === pawnIndex) return false
+          return isOnTrack(other) && other.index === last.index
+        })
+      }
+
+      let score = numeric
+      if (pawn.region === 'start' && !landsOnOwn && last.region === 'track' && last.index === entryIndex) {
+        // Strong bonus for leaving Start onto a free entry square.
+        score += 100
+      }
+
+      if (landsOnOwn) {
+        // Very heavy penalty for landing on our own pawn so this is chosen
+        // only if there are absolutely no better options.
+        score -= 1000
+      }
+
+      if (!best || score > best.score) {
+        best = { card, index, pawnIndex, score }
+      }
+    })
+
+    if (best) {
+      // Play the chosen numeric card immediately on the selected pawn.
+      pushLog(`${aiColor} (AI) plays ${best.card}`)
+      play('draw')
+      playNumericOnPawn(best.card, aiColor, best.pawnIndex, best.index)
+      return
+    }
+
+    // 3) No numeric or Sorry moves: try 'Oops' to reroll the hand.
+    const oopsIndex = hand.findIndex((c) => c === 'Oops')
+    if (oopsIndex !== -1) {
+      handleCardSelect(oopsIndex)
+      return
+    }
+
+    // Otherwise, discard the first available card using existing logic.
+    const fallbackIndex = hand.findIndex((c) => c != null)
+    if (fallbackIndex !== -1) {
+      handleCardSelect(fallbackIndex)
+    }
+  }, [winner, isAnimating, currentColor, aiColors, hand, pawns, selectedIndex, currentCard])
 
   function pushLog(entry) {
     setLog((prev) => {
@@ -491,7 +616,15 @@ export default function GameScreen() {
   function advanceTurn() {
     setCurrentCard(null)
     setSelectedIndex(null)
-    setTurnIndex((i) => (i + 1) % COLORS.length)
+    setTurnIndex((i) => {
+      const next = (i + 1) % COLORS.length
+      const nextColor = COLORS[next]
+      // Ding when it becomes a human player's turn.
+      if (!aiColors || !aiColors.includes(nextColor)) {
+        play('turn')
+      }
+      return next
+    })
   }
 
   function resetGame() {
@@ -583,6 +716,43 @@ export default function GameScreen() {
     applyFrame(0)
   }
 
+  function playSorryMove(attackerColor, defenderColor, defenderIndex, slotIndex) {
+    const myList = pawns[attackerColor]
+    if (!myList) return
+    const startIdx = myList.findIndex(isInStart)
+    if (startIdx === -1) return
+
+    setPawns((prev) => {
+      const next = {
+        ...prev,
+        [defenderColor]: prev[defenderColor].map((p) => ({ ...p })),
+        [attackerColor]: prev[attackerColor].map((p) => ({ ...p })),
+      }
+
+      const oppPawn = next[defenderColor][defenderIndex]
+      const myStartPawn = next[attackerColor][startIdx]
+      if (!oppPawn || !myStartPawn || !isOnTrack(oppPawn)) return prev
+
+      const targetPos = oppPawn.index
+      oppPawn.region = 'start'
+      delete oppPawn.index
+      myStartPawn.region = 'track'
+      myStartPawn.index = targetPos
+      const w = getWinner(next)
+      if (w) setWinnerAndLog(w)
+      return next
+    })
+
+    pushLog(`${attackerColor} played Sorry on ${defenderColor}`)
+    play('sorry')
+    if (typeof slotIndex === 'number') {
+      drawIntoHandSlot(slotIndex)
+    }
+    setSelectedIndex(null)
+    setCurrentCard(null)
+    advanceTurn()
+  }
+
   function handlePawnClick(color, idx) {
     if (!currentCard || winner || isAnimating) return
 
@@ -594,41 +764,9 @@ export default function GameScreen() {
     if (currentCard === 'Sorry') {
       if (color === currentColor) return
       if (!isOnTrack(pawn)) return
+      if (selectedIndex === null) return
 
-      const myList = pawns[currentColor]
-      if (!myList) return
-      const startIdx = myList.findIndex(isInStart)
-      if (startIdx === -1) return
-
-      // Now we know the click is a valid Sorry move; apply it and advance turn.
-      setPawns((prev) => {
-        const next = {
-          ...prev,
-          [color]: prev[color].map((p) => ({ ...p })),
-          [currentColor]: prev[currentColor].map((p) => ({ ...p })),
-        }
-        const oppPawn = next[color][idx]
-        const myStartPawn = next[currentColor][startIdx]
-        if (!oppPawn || !myStartPawn || !isOnTrack(oppPawn)) return prev
-
-        const targetPos = oppPawn.index
-        oppPawn.region = 'start'
-        delete oppPawn.index
-        myStartPawn.region = 'track'
-        myStartPawn.index = targetPos
-        const w = getWinner(next)
-        if (w) setWinnerAndLog(w)
-        return next
-      })
-
-      pushLog(`${currentColor} played Sorry on ${color}`)
-      play('sorry')
-      if (selectedIndex !== null) {
-        drawIntoHandSlot(selectedIndex)
-        setSelectedIndex(null)
-        setCurrentCard(null)
-      }
-      advanceTurn()
+      playSorryMove(currentColor, color, idx, selectedIndex)
       return
     }
 

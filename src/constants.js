@@ -105,6 +105,7 @@ export const HOME_PATHS = {
     { x: 13, y: 28 },
     { x: 13, y: 35 },
     { x: 13, y: 42 },
+    { x: 13, y: 49 },
   ],
   Blue: [
     { x: 86, y: 13 },
@@ -112,6 +113,7 @@ export const HOME_PATHS = {
     { x: 72, y: 13 },
     { x: 65, y: 13 },
     { x: 58, y: 13 },
+    { x: 51, y: 13 },
   ],
   Yellow: [
     { x: 87, y: 86 },
@@ -119,6 +121,7 @@ export const HOME_PATHS = {
     { x: 87, y: 72 },
     { x: 87, y: 65 },
     { x: 87, y: 58 },
+    { x: 87, y: 51 },
   ],
   Green: [
     { x: 14, y: 87 },
@@ -126,6 +129,7 @@ export const HOME_PATHS = {
     { x: 28, y: 87 },
     { x: 35, y: 87 },
     { x: 42, y: 87 },
+    { x: 49, y: 87 },
   ],
 }
 
@@ -134,19 +138,19 @@ export const HOME_PATHS = {
 // Convenience: indices for slides. Two slide segments per side.
 export const SLIDES = {
   Red: [
-    { start: 4, end: 7 },
-    { start: 9, end: 12 },
+    { start: 5, end: 7 },
+    { start: 10, end: 12 },
   ],
   Blue: [
-    { start: 19, end: 22 },
-    { start: 24, end: 27 },
+    { start: 20, end: 22 },
+    { start: 25, end: 27 },
   ],
   Yellow: [
-    { start: 34, end: 37 },
-    { start: 39, end: 42 },
+    { start: 35, end: 37 },
+    { start: 40, end: 42 },
   ],
   Green: [
-    { start: 49, end: 52 },
-    { start: 54, end: 57 },
+    { start: 50, end: 52 },
+    { start: 55, end: 57 },
   ],
 }
