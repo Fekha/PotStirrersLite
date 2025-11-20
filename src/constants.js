@@ -42,66 +42,93 @@ function round(v) {
 
 export const BOARD_PATH = generateBoardPath()
 
+// Player colors used throughout the app
+export const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
+
+// Deck composition (four of each card)
+export const BASE_DECK = [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 'Sorry']
+
 // Start zones: four positions near each corner for each color
 export const START_ZONES = {
   Red: [
-    { x: 15, y: 15 },
-    { x: 25, y: 15 },
-    { x: 15, y: 25 },
-    { x: 25, y: 25 },
+    { x: 31.5, y: 15 },
+    { x: 41.5, y: 15 },
+    { x: 31.5, y: 25 },
+    { x: 41.5, y: 25 },
   ],
   Blue: [
-    { x: 75, y: 15 },
-    { x: 85, y: 15 },
-    { x: 75, y: 25 },
-    { x: 85, y: 25 },
+    { x: 75, y: 31.5 },
+    { x: 85, y: 31.5 },
+    { x: 75, y: 41.5 },
+    { x: 85, y: 41.5 },
   ],
   Yellow: [
-    { x: 75, y: 75 },
-    { x: 85, y: 75 },
-    { x: 75, y: 85 },
-    { x: 85, y: 85 },
+    { x: 58.5, y: 75 },
+    { x: 68.5, y: 75 },
+    { x: 58.5, y: 85 },
+    { x: 68.5, y: 85 },
   ],
   Green: [
-    { x: 15, y: 75 },
-    { x: 25, y: 75 },
-    { x: 15, y: 85 },
-    { x: 25, y: 85 },
+    { x: 15, y: 58.5 },
+    { x: 25, y: 58.5 },
+    { x: 15, y: 68.5 },
+    { x: 25, y: 68.5 },
   ],
+}
+
+// Entry indices on the main track when leaving Start / entering home lanes.
+export const START_INDEX = {
+  Red: 4,
+  Blue: 19,
+  Yellow: 34,
+  Green: 49,
+}
+
+// Track index where each color enters its safety/home path. These are kept as
+// simple constants so you can easily tweak them without touching logic.
+// With the current geometry, these correspond to the squares visually aligned
+// with the start of each color's home lane.
+export const HOME_ENTRY_INDEX = {
+  Red: 1,
+  Blue: 16,
+  Yellow: 31,
+  Green: 46,
 }
 
 // Safety/Home paths: 5-step columns/rows that lead from an entry on the main track into the center
 // These are simplified straight paths aimed at the board center; you can adjust later to match art.
 export const HOME_PATHS = {
   Red: [
-    { x: 50, y: 22 },
-    { x: 50, y: 30 },
-    { x: 50, y: 38 },
-    { x: 50, y: 46 },
-    { x: 50, y: 54 },
+    { x: 18.5, y: 14 },
+    { x: 18.5, y: 21 },
+    { x: 18.5, y: 28 },
+    { x: 18.5, y: 35 },
+    { x: 18.5, y: 42 },
   ],
   Blue: [
-    { x: 78, y: 50 },
-    { x: 70, y: 50 },
-    { x: 62, y: 50 },
-    { x: 54, y: 50 },
-    { x: 46, y: 50 },
+    { x: 86, y: 18.5 },
+    { x: 79, y: 18.5 },
+    { x: 72, y: 18.5 },
+    { x: 65, y: 18.5 },
+    { x: 58, y: 18.5 },
   ],
   Yellow: [
-    { x: 50, y: 78 },
-    { x: 50, y: 70 },
-    { x: 50, y: 62 },
-    { x: 50, y: 54 },
-    { x: 50, y: 46 },
+    { x: 81.5, y: 86 },
+    { x: 81.5, y: 79 },
+    { x: 81.5, y: 72 },
+    { x: 81.5, y: 65 },
+    { x: 81.5, y: 58 },
   ],
   Green: [
-    { x: 22, y: 50 },
-    { x: 30, y: 50 },
-    { x: 38, y: 50 },
-    { x: 46, y: 50 },
-    { x: 54, y: 50 },
+    { x: 14, y: 81.5 },
+    { x: 21, y: 81.5 },
+    { x: 28, y: 81.5 },
+    { x: 35, y: 81.5 },
+    { x: 42, y: 81.5 },
   ],
 }
+
+
 
 // Convenience: indices for example slides (customize later)
 export const SLIDES = {

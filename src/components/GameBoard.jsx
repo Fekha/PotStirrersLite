@@ -1,4 +1,4 @@
-import { BOARD_PATH, START_ZONES, HOME_PATHS, SLIDES } from '../constants'
+import { BOARD_PATH, START_ZONES, HOME_PATHS, SLIDES, START_INDEX, HOME_ENTRY_INDEX } from '../constants'
 import Pawn from './Pawn.jsx'
 
 function getSlideInfo(index) {
@@ -33,32 +33,6 @@ const finalHomeColors = {
   Green: 'border-emerald-400 bg-emerald-500/40',
 }
 
-// Compute the track index where each color enters its home lane, by finding
-// the BOARD_PATH cell closest to the first HOME_PATH point. This matches
-// the logic used in GameScreen so visuals and rules stay aligned.
-const HOME_ENTRY_INDEX = (() => {
-  const colors = ['Red', 'Blue', 'Yellow', 'Green']
-  const result = {}
-  for (const color of colors) {
-    const homePath = HOME_PATHS[color]
-    if (!homePath || !homePath.length) continue
-    const entryTarget = homePath[0]
-    let bestIndex = 0
-    let bestDist = Number.POSITIVE_INFINITY
-    BOARD_PATH.forEach((p, i) => {
-      const dx = p.x - entryTarget.x
-      const dy = p.y - entryTarget.y
-      const d2 = dx * dx + dy * dy
-      if (d2 < bestDist) {
-        bestDist = d2
-        bestIndex = i
-      }
-    })
-    result[color] = bestIndex
-  }
-  return result
-})()
-
 export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable }) {
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
@@ -70,11 +44,9 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
       if (slide.type === 'end') base += ' ring-1 ring-current'
     }
 
-    // Highlight the entry square into each color's home lane. This uses the
-    // START_INDEX values from constants (via props), which correspond to the
-    // lane entry points in GameScreen logic.
-    const startIndices = { Red: 1, Blue: 16, Yellow: 31, Green: 46 }
-    for (const [color, entryIndex] of Object.entries(startIndices)) {
+    // Highlight the entry square into each color's home lane, using the
+    // HOME_ENTRY_INDEX mapping from constants.
+    for (const [color, entryIndex] of Object.entries(HOME_ENTRY_INDEX)) {
       if (entryIndex === index) {
         const hc = homeColors[color] || ''
         base += ` ${hc} ring-2 ring-current`

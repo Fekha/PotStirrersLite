@@ -1,10 +1,6 @@
 import { useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
-import { SLIDES, HOME_PATHS, BOARD_PATH } from '../constants'
-
-const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
-
-const BASE_DECK = [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 'Sorry']
+import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
 
 function buildDeck() {
   const deck = []
@@ -28,40 +24,6 @@ function initialPawns() {
   }
   return result
 }
-
-// Entry indices on the main track when leaving Start.
-// These will be used as the entry points into the safety/home lanes.
-const START_INDEX = {
-  Red: 1,
-  Blue: 16,
-  Yellow: 31,
-  Green: 46,
-}
-
-// Chosen entry points from the main loop into each color's safety/home path.
-// These are computed as the track cell closest to the first HOME_PATH point
-// for that color, so they stay aligned with your board geometry.
-const HOME_ENTRY_INDEX = (() => {
-  const result = {}
-  for (const color of COLORS) {
-    const homePath = HOME_PATHS[color]
-    if (!homePath || !homePath.length) continue
-    const entryTarget = homePath[0]
-    let bestIndex = 0
-    let bestDist = Number.POSITIVE_INFINITY
-    BOARD_PATH.forEach((p, i) => {
-      const dx = p.x - entryTarget.x
-      const dy = p.y - entryTarget.y
-      const d2 = dx * dx + dy * dy
-      if (d2 < bestDist) {
-        bestDist = d2
-        bestIndex = i
-      }
-    })
-    result[color] = bestIndex
-  }
-  return result
-})()
 
 function isOnTrack(pawn) {
   return pawn?.region === 'track' && typeof pawn.index === 'number'
@@ -113,13 +75,12 @@ function simulateMove(color, pawn, steps) {
   if (pawn.region === 'home') return { canMove: false, nextPawn: pawn }
 
   // Start region: only 1 or 2 can leave. Pawns leave start onto the track at
-  // the index that visually aligns with the start of their home lane
-  // (previously HOME_ENTRY_INDEX).
+  // START_INDEX[color], which you can tweak in constants.js.
   if (pawn.region === 'start') {
     if (!(steps === 1 || steps === 2)) return { canMove: false, nextPawn: pawn }
     return {
       canMove: true,
-      nextPawn: { region: 'track', index: HOME_ENTRY_INDEX[color] },
+      nextPawn: { region: 'track', index: START_INDEX[color] },
     }
   }
 
@@ -133,9 +94,8 @@ function simulateMove(color, pawn, steps) {
   for (let i = 0; i < steps; i++) {
     if (region === 'track') {
       // If we're at the lane entry, step into the first safety cell.
-      // Lane entry is the START_INDEX square for that color, which is now
-      // distinct from where pawns first leave start.
-      if (index === START_INDEX[color]) {
+      // Lane entry is the HOME_ENTRY_INDEX square for that color.
+      if (index === HOME_ENTRY_INDEX[color]) {
         region = 'safety'
         index = undefined
         safetyIndex = 0
