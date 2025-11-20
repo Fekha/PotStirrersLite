@@ -33,7 +33,7 @@ const finalHomeColors = {
   Green: 'border-emerald-400 bg-emerald-500/40',
 }
 
-export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable }) {
+export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable, projections }) {
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
     let base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border border-zinc-700 bg-zinc-900/80'
@@ -66,6 +66,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
   const pawnNodes = Object.entries(pawnsByColor || {}).flatMap(([color, pawns]) => {
     const starts = START_ZONES[color] || []
     const homePath = HOME_PATHS[color] || []
+    const projList = (projections && projections[color]) || []
 
     return (pawns || []).map((pawn, idx) => {
       if (!pawn) return null
@@ -92,6 +93,8 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         return null
       }
 
+      const projection = projList[idx]
+
       return (
         <Pawn
           key={`${color}-${idx}`}
@@ -100,6 +103,38 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
           y={y}
           active={movable?.color === color && movable?.indices?.includes(idx)}
           onClick={() => onPawnClick && onPawnClick(color, idx)}
+        />
+      )
+    })
+  })
+
+  const projectionNodes = Object.entries(projections || {}).flatMap(([color, projList]) => {
+    const homePath = HOME_PATHS[color] || []
+    return (projList || []).map((target, idx) => {
+      if (!target) return null
+
+      let x
+      let y
+
+      if (target.region === 'track' && typeof target.index === 'number') {
+        const trackPos = BOARD_PATH[target.index]
+        if (!trackPos) return null
+        x = trackPos.x
+        y = trackPos.y
+      } else if ((target.region === 'safety' || target.region === 'home') && typeof target.safetyIndex === 'number') {
+        const hp = homePath[target.safetyIndex]
+        if (!hp) return null
+        x = hp.x
+        y = hp.y
+      } else {
+        return null
+      }
+
+      return (
+        <div
+          key={`proj-${color}-${idx}`}
+          className="absolute w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 border-dashed border-zinc-300/80 pointer-events-none"
+          style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}
         />
       )
     })
@@ -128,6 +163,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
         {trackCells}
         {homes}
+        {projectionNodes}
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">

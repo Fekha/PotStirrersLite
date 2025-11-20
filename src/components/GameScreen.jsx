@@ -326,8 +326,36 @@ export default function GameScreen() {
   const currentColor = COLORS[turnIndex]
 
   const movable = useMemo(() => {
+    if (isAnimating || winner) return null
     return getMovableFor(currentCard, currentColor, pawns)
-  }, [currentCard, currentColor, pawns])
+  }, [currentCard, currentColor, pawns, isAnimating, winner])
+
+  // For the currently selected numeric card, pre-compute where each movable
+  // pawn would land so the board can show a projection marker.
+  const projections = useMemo(() => {
+    if (isAnimating || winner) return {}
+    if (currentCard === null || currentCard === undefined) return {}
+    if (!movable) return {}
+    if (currentCard === 'Sorry' || currentCard === 'Oops') return {}
+
+    const color = movable.color
+    const indices = movable.indices || []
+    const list = pawns[color] || []
+    const isZeroCard = currentCard === 0
+    const numeric = isZeroCard ? 1 : Number(currentCard)
+    if (!numeric) return {}
+
+    const arr = list.map(() => null)
+    indices.forEach((idx) => {
+      const pawn = list[idx]
+      if (!pawn) return
+      const frames = getMoveFrames(color, pawn, numeric)
+      if (!frames.length) return
+      arr[idx] = frames[frames.length - 1]
+    })
+
+    return { [color]: arr }
+  }, [currentCard, movable, pawns, isAnimating, winner])
 
   useEffect(() => {
     // Deal an initial shared hand of 3 cards, drawn from the deck.
@@ -649,6 +677,7 @@ export default function GameScreen() {
         onPawnClick={handlePawnClick}
         activeColor={currentColor}
         movable={movable}
+        projections={projections}
       />
       <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
         {log.map((entry, i) => (
