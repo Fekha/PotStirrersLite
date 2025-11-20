@@ -13,10 +13,55 @@ function getSlideInfo(index) {
 }
 
 const slideColors = {
-  Red: 'border-red-400 bg-red-500/10',
-  Blue: 'border-sky-400 bg-sky-500/10',
-  Yellow: 'border-yellow-400 bg-yellow-400/10',
-  Green: 'border-emerald-400 bg-emerald-500/10',
+  Red: 'border-zinc-400 bg-zinc-800/80',
+  Blue: 'border-zinc-400 bg-zinc-800/80',
+  Yellow: 'border-zinc-400 bg-zinc-800/80',
+  Green: 'border-zinc-400 bg-zinc-800/80',
+}
+
+const slideArrowOrientation = {
+  Red: 'rotate-45', // top side, pointing clockwise
+  Blue: 'rotate-135', // right side, pointing down
+  Yellow: 'rotate-225', // bottom side, pointing left
+  Green: 'rotate-315', // left side, pointing up
+}
+
+// Highlight colors for the track square where each color leaves Start.
+const startTileColors = {
+  Red: 'border-red-500 bg-red-500/15',
+  Blue: 'border-sky-500 bg-sky-500/15',
+  Yellow: 'border-yellow-500 bg-yellow-400/20',
+  Green: 'border-emerald-500 bg-emerald-500/15',
+}
+
+// Text arrows for home-lane entry markers (point straight into the lane).
+const homeEntryArrowChars = {
+  Red: '↓',    // from top edge into center
+  Blue: '←',   // from right edge into center
+  Yellow: '↑', // from bottom edge into center
+  Green: '→',  // from left edge into center
+}
+
+const homeEntryTextColors = {
+  Red: 'text-red-300',
+  Blue: 'text-sky-300',
+  Yellow: 'text-yellow-300',
+  Green: 'text-emerald-300',
+}
+
+// Text arrows for leaving Start onto the main track (opposite of home-entry arrows).
+const startArrowChars = {
+  Red: '↑',    // from top edge, away from center
+  Blue: '→',   // from right edge, away from center
+  Yellow: '↓', // from bottom edge, away from center
+  Green: '←',  // from left edge, away from center
+}
+
+const startTextColors = {
+  Red: 'text-red-300',
+  Blue: 'text-sky-300',
+  Yellow: 'text-yellow-300',
+  Green: 'text-emerald-300',
 }
 
 const homeColors = {
@@ -40,26 +85,68 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
 
     if (slide) {
       base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
-      if (slide.type === 'start') base += ' ring-2 ring-current'
-      if (slide.type === 'end') base += ' ring-1 ring-current'
     }
 
     // Highlight the entry square into each color's home lane, using the
     // HOME_ENTRY_INDEX mapping from constants.
+    let homeEntryColor = null
     for (const [color, entryIndex] of Object.entries(HOME_ENTRY_INDEX)) {
       if (entryIndex === index) {
         const hc = homeColors[color] || ''
         base += ` ${hc} ring-2 ring-current`
+        homeEntryColor = color
         break
       }
     }
 
+    // Highlight the track square each color uses to leave Start.
+    let startColor = null
+    for (const [color, startIndex] of Object.entries(START_INDEX)) {
+      if (startIndex === index) {
+        const sc = startTileColors[color] || ''
+        base += ` ${sc} ring-2 ring-current`
+        startColor = color
+        break
+      }
+    }
     return (
       <div
         key={index}
         className={base}
         style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-      />
+      >
+        {slide && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div
+              className={`w-2 h-2 border-t-2 border-r-2 border-zinc-200/80 ${
+                slideArrowOrientation[slide.color] || ''
+              }`}
+            />
+          </div>
+        )}
+        {homeEntryColor && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span
+              className={`text-[0.55rem] sm:text-xs font-bold ${
+                homeEntryTextColors[homeEntryColor] || 'text-zinc-200'
+              }`}
+            >
+              {homeEntryArrowChars[homeEntryColor] || '↓'}
+            </span>
+          </div>
+        )}
+        {startColor && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span
+              className={`text-[0.55rem] sm:text-xs font-bold ${
+                startTextColors[startColor] || 'text-zinc-200'
+              }`}
+            >
+              {startArrowChars[startColor] || '↑'}
+            </span>
+          </div>
+        )}
+      </div>
     )
   })
 

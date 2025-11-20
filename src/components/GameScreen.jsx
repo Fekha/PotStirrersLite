@@ -284,12 +284,16 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
     })
   }
 
-  // Slides: if you land on the start of a slide that isn't your color, move to the end
-  // and bump anyone along the way.
-  for (const [slideColor, slides] of Object.entries(SLIDES)) {
+  // Slides: if you land on the start of any slide, move to the end and bump
+  // anyone along the way (no color restriction). If you land on any square
+  // within a slide segment (start, middle, or end), you always slide to the
+  // segment's end.
+  for (const [, slides] of Object.entries(SLIDES)) {
     for (const s of slides) {
-      if (pos === s.start && slideColor !== color) {
-        for (let i = s.start + 1; i <= s.end; i++) {
+      if (pos >= s.start && pos <= s.end) {
+        // Bump pawns only on the remaining slide squares ahead of the
+        // landing position.
+        for (let i = pos + 1; i <= s.end; i++) {
           for (const c of COLORS) {
             const list = state[c]
             list.forEach((otherPawn, idx) => {

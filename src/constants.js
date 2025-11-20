@@ -52,37 +52,37 @@ export const BASE_DECK = [0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 'Sorry', 'Oops']
 // Start zones: four positions near each corner for each color
 export const START_ZONES = {
   Red: [
-    { x: 31.5, y: 15 },
-    { x: 41.5, y: 15 },
-    { x: 31.5, y: 25 },
-    { x: 41.5, y: 25 },
+    { x: 20, y: 15 },
+    { x: 29, y: 15 },
+    { x: 20, y: 25 },
+    { x: 29, y: 25 },
   ],
   Blue: [
-    { x: 75, y: 31.5 },
-    { x: 85, y: 31.5 },
-    { x: 75, y: 41.5 },
-    { x: 85, y: 41.5 },
+    { x: 75, y: 20 },
+    { x: 85, y: 20 },
+    { x: 75, y: 29 },
+    { x: 85, y: 29 },
   ],
   Yellow: [
-    { x: 58.5, y: 75 },
-    { x: 68.5, y: 75 },
-    { x: 58.5, y: 85 },
-    { x: 68.5, y: 85 },
+    { x: 71, y: 75 },
+    { x: 80, y: 75 },
+    { x: 71, y: 85 },
+    { x: 80, y: 85 },
   ],
   Green: [
-    { x: 15, y: 58.5 },
-    { x: 25, y: 58.5 },
-    { x: 15, y: 68.5 },
-    { x: 25, y: 68.5 },
+    { x: 15, y: 71 },
+    { x: 25, y: 71 },
+    { x: 15, y: 80 },
+    { x: 25, y: 80 },
   ],
 }
 
 // Entry indices on the main track when leaving Start / entering home lanes.
 export const START_INDEX = {
-  Red: 4,
-  Blue: 19,
-  Yellow: 34,
-  Green: 49,
+  Red: 2,
+  Blue: 17,
+  Yellow: 32,
+  Green: 47,
 }
 
 // Track index where each color enters its safety/home path. These are kept as
@@ -90,51 +90,63 @@ export const START_INDEX = {
 // With the current geometry, these correspond to the squares visually aligned
 // with the start of each color's home lane.
 export const HOME_ENTRY_INDEX = {
-  Red: 1,
-  Blue: 16,
-  Yellow: 31,
-  Green: 46,
+  Red: 0,
+  Blue: 15,
+  Yellow: 30,
+  Green: 45,
 }
 
 // Safety/Home paths: 5-step columns/rows that lead from an entry on the main track into the center
 // These are simplified straight paths aimed at the board center; you can adjust later to match art.
 export const HOME_PATHS = {
   Red: [
-    { x: 18.5, y: 14 },
-    { x: 18.5, y: 21 },
-    { x: 18.5, y: 28 },
-    { x: 18.5, y: 35 },
-    { x: 18.5, y: 42 },
+    { x: 13, y: 14 },
+    { x: 13, y: 21 },
+    { x: 13, y: 28 },
+    { x: 13, y: 35 },
+    { x: 13, y: 42 },
   ],
   Blue: [
-    { x: 86, y: 18.5 },
-    { x: 79, y: 18.5 },
-    { x: 72, y: 18.5 },
-    { x: 65, y: 18.5 },
-    { x: 58, y: 18.5 },
+    { x: 86, y: 13 },
+    { x: 79, y: 13 },
+    { x: 72, y: 13 },
+    { x: 65, y: 13 },
+    { x: 58, y: 13 },
   ],
   Yellow: [
-    { x: 81.5, y: 86 },
-    { x: 81.5, y: 79 },
-    { x: 81.5, y: 72 },
-    { x: 81.5, y: 65 },
-    { x: 81.5, y: 58 },
+    { x: 87, y: 86 },
+    { x: 87, y: 79 },
+    { x: 87, y: 72 },
+    { x: 87, y: 65 },
+    { x: 87, y: 58 },
   ],
   Green: [
-    { x: 14, y: 81.5 },
-    { x: 21, y: 81.5 },
-    { x: 28, y: 81.5 },
-    { x: 35, y: 81.5 },
-    { x: 42, y: 81.5 },
+    { x: 14, y: 87 },
+    { x: 21, y: 87 },
+    { x: 28, y: 87 },
+    { x: 35, y: 87 },
+    { x: 42, y: 87 },
   ],
 }
 
 
 
-// Convenience: indices for example slides (customize later)
+// Convenience: indices for slides. Two slide segments per side.
 export const SLIDES = {
-  Red: [{ start: 1, end: 4 }],
-  Blue: [{ start: 16, end: 19 }],
-  Yellow: [{ start: 31, end: 34 }],
-  Green: [{ start: 46, end: 49 }],
+  Red: [
+    { start: 4, end: 7 },
+    { start: 9, end: 12 },
+  ],
+  Blue: [
+    { start: 19, end: 22 },
+    { start: 24, end: 27 },
+  ],
+  Yellow: [
+    { start: 34, end: 37 },
+    { start: 39, end: 42 },
+  ],
+  Green: [
+    { start: 49, end: 52 },
+    { start: 54, end: 57 },
+  ],
 }
