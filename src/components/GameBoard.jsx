@@ -94,7 +94,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
 
       return (
         <Pawn
-          key={`${color}-${pawn.region}-${idx}`}
+          key={`${color}-${idx}`}
           color={color}
           x={x}
           y={y}
@@ -124,8 +124,8 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
 
   return (
     <div className="w-full flex flex-col items-center gap-4">
-      <div className="aspect-square w-full max-w-md bg-zinc-900 rounded-3xl border border-zinc-700 relative overflow-hidden">
-        <div className="absolute inset-6 border-2 border-zinc-700 rounded-3xl" />
+      <div className="aspect-square w-full max-w-md bg-zinc-900 rounded-3xl border border-zinc-700 relative overflow-hidden touch-none select-none">
+        <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
         {trackCells}
         {homes}
         {pawnNodes}
