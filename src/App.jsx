@@ -5,6 +5,7 @@ import GameScreen from './components/GameScreen.jsx'
 function App() {
   const [view, setView] = useState('lobby')
   const [aiColors, setAiColors] = useState([])
+  const [onlineGameCode, setOnlineGameCode] = useState(null)
 
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-100 flex flex-col">
@@ -42,11 +43,19 @@ function App() {
               else colors = pool.slice(0, Math.min(aiCount, pool.length))
 
               setAiColors(colors)
+              setOnlineGameCode(null)
+              setView('board')
+            }}
+            onOnlineGameStart={(code) => {
+              setOnlineGameCode(code)
+              // Online games will drive AI assignment from the game document
+              // later; for now, start with no local AI override.
+              setAiColors([])
               setView('board')
             }}
           />
         ) : (
-          <GameScreen aiColors={aiColors} />
+          <GameScreen aiColors={aiColors} gameCode={onlineGameCode} />
         )}
       </main>
     </div>

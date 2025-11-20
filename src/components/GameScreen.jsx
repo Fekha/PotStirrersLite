@@ -132,14 +132,19 @@ function getMovableFor(card, color, pawnsByColor) {
 // numeric move, so we can animate along the path (track + safety/home).
 function getMoveFrames(color, pawn, steps) {
   const frames = []
-  if (!pawn || steps <= 0) return frames
+  if (!pawn || steps === 0) return frames
 
   // From start we just jump onto the track entry square; that's a single
-  // visible step, regardless of card value (1 or 2).
+  // visible step for any non-zero move that is allowed to leave Start.
   if (pawn.region === 'start') {
-    frames.push({ region: 'track', index: START_INDEX[color] })
+    if (steps !== 0) {
+      frames.push({ region: 'track', index: START_INDEX[color] })
+    }
     return frames
   }
+
+  const dir = steps > 0 ? 1 : -1
+  const count = Math.abs(steps)
 
   let region = pawn.region
   let index = pawn.index
@@ -147,17 +152,25 @@ function getMoveFrames(color, pawn, steps) {
   const homePath = HOME_PATHS[color]
   const lastSafety = homePath.length - 1
 
-  for (let i = 0; i < steps; i++) {
+  for (let i = 0; i < count; i++) {
     if (region === 'track') {
-      if (index === HOME_ENTRY_INDEX[color]) {
-        region = 'safety'
-        index = undefined
-        safetyIndex = 0
+      if (dir > 0) {
+        if (index === HOME_ENTRY_INDEX[color]) {
+          region = 'safety'
+          index = undefined
+          safetyIndex = 0
+        } else {
+          index = ((index ?? 0) + 1) % 60
+        }
       } else {
-        index = ((index ?? 0) + 1) % 60
+        index = ((index ?? 0) + 60 - 1) % 60
       }
     } else if (region === 'safety') {
-      safetyIndex += 1
+      if (dir > 0) {
+        safetyIndex += 1
+      } else {
+        break
+      }
     } else {
       break
     }
@@ -171,7 +184,7 @@ function getMoveFrames(color, pawn, steps) {
 
   // If we ended up exactly on the last safety index, that step is really
   // "home" in the game logic.
-  if (frames.length && homePath && homePath.length) {
+  if (frames.length && homePath && homePath.length && steps > 0) {
     const last = frames[frames.length - 1]
     if (last.region === 'safety' && last.safetyIndex === lastSafety) {
       frames[frames.length - 1] = { region: 'home', safetyIndex: lastSafety }
@@ -198,15 +211,15 @@ function hasSorryMove(color, pawnsByColor) {
 // Simulate moving a pawn forward a given number of steps, including
 // entering its safety/home path. Does not apply bumps or slides.
 function simulateMove(color, pawn, steps) {
-  if (!pawn || steps <= 0) return { canMove: false, nextPawn: pawn }
+  if (!pawn || steps === 0) return { canMove: false, nextPawn: pawn }
 
   // Already home: cannot move.
   if (pawn.region === 'home') return { canMove: false, nextPawn: pawn }
 
-  // Start region: only 1 or 2 can leave. Pawns leave start onto the track at
+  // Start region: 0, 1, 2, or -3 can leave. Pawns leave start onto the track at
   // START_INDEX[color], which you can tweak in constants.js.
   if (pawn.region === 'start') {
-    if (!(steps === 1 || steps === 2)) return { canMove: false, nextPawn: pawn }
+    if (!(steps === 1 || steps === 2 || steps === -3)) return { canMove: false, nextPawn: pawn }
     return {
       canMove: true,
       nextPawn: { region: 'track', index: START_INDEX[color] },
@@ -219,6 +232,19 @@ function simulateMove(color, pawn, steps) {
   let safetyIndex = pawn.safetyIndex ?? 0
   const homePath = HOME_PATHS[color]
   const lastSafety = homePath.length - 1
+
+  if (steps < 0) {
+    const count = Math.abs(steps)
+    if (region !== 'track') {
+      return { canMove: false, nextPawn: pawn }
+    }
+
+    for (let i = 0; i < count; i++) {
+      index = ((index ?? 0) + 60 - 1) % 60
+    }
+
+    return { canMove: true, nextPawn: { region: 'track', index } }
+  }
 
   for (let i = 0; i < steps; i++) {
     if (region === 'track') {
@@ -456,14 +482,53 @@ export default function GameScreen({ aiColors = [] } = {}) {
       // Detect landing on one of our own pawns (self-bump), either from
       // Start or from the board. We treat this as lowest priority.
       let landsOnOwn = false
+      let landsOnEnemy = false
       if (last.region === 'track' && typeof last.index === 'number') {
         landsOnOwn = list.some((other, j) => {
           if (j === pawnIndex) return false
           return isOnTrack(other) && other.index === last.index
         })
+        if (!landsOnOwn) {
+          for (const oppColor of COLORS) {
+            if (oppColor === aiColor) continue
+            const oppList = pawns[oppColor] || []
+            if (
+              oppList.some(
+                (other) =>
+                  other &&
+                  isOnTrack(other) &&
+                  typeof other.index === 'number' &&
+                  other.index === last.index
+              )
+            ) {
+              landsOnEnemy = true
+              break
+            }
+          }
+        }
       }
 
-      let score = numeric
+      let score = 0
+
+      if (numeric > 0) {
+        score += numeric
+      } else if (numeric < 0) {
+        score += Math.abs(numeric) * 0.5
+      }
+
+      if (last.region === 'track' && typeof last.index === 'number' && isOnTrack(pawn)) {
+        const beforeIndex = pawn.index
+        if (typeof beforeIndex === 'number') {
+          const homeEntry = HOME_ENTRY_INDEX[aiColor]
+          const beforeDist = (homeEntry - beforeIndex + 60) % 60
+          const afterDist = (homeEntry - last.index + 60) % 60
+          const gain = beforeDist - afterDist
+          if (gain !== 0) {
+            score += gain * 2
+          }
+        }
+      }
+
       if (pawn.region === 'start' && !landsOnOwn && last.region === 'track' && last.index === entryIndex) {
         // Strong bonus for leaving Start onto a free entry square.
         score += 100
@@ -473,6 +538,10 @@ export default function GameScreen({ aiColors = [] } = {}) {
         // Very heavy penalty for landing on our own pawn so this is chosen
         // only if there are absolutely no better options.
         score -= 1000
+      }
+
+      if (landsOnEnemy) {
+        score += 120
       }
 
       if (!best || score > best.score) {
@@ -515,8 +584,13 @@ export default function GameScreen({ aiColors = [] } = {}) {
   }
 
   function setWinnerAndLog(color) {
-    setWinner(color)
-    pushLog(`${color} wins!`)
+    setWinner((prev) => prev || color)
+    setLog((prev) => {
+      // Avoid logging duplicate winner lines if this is triggered more than once.
+      if (prev.some((entry) => entry.endsWith('wins!'))) return prev
+      const next = [`${color} wins!`, ...prev]
+      return next.slice(0, 7)
+    })
     play('win')
   }
 
@@ -593,13 +667,15 @@ export default function GameScreen({ aiColors = [] } = {}) {
       return
     }
 
-    // Auto-exit from Start: for 0 if any pawn is in start; for 1 or 2 if the
+    const indices = moveInfo.indices || []
+
+    // Auto-exit from Start: for 0 if any pawn is in start; for 1, 2, or -3 if the
     // player has no pawns out on the board yet.
     const list = pawns[color] || []
     const hasStart = list.some((p) => p && p.region === 'start')
     const hasOut = list.some((p) => p && (p.region === 'track' || p.region === 'safety'))
-    const isOneOrTwo = card === 1 || card === 2
-    const shouldAuto = (card === 0 && hasStart) || (isOneOrTwo && hasStart && !hasOut)
+    const isOneTwoOrNegThree = card === 1 || card === 2 || card === -3
+    const shouldAuto = (card === 0 && hasStart) || (isOneTwoOrNegThree && hasStart && !hasOut)
 
     pushLog(`${color} selected ${card}`)
     play('draw')
@@ -610,6 +686,11 @@ export default function GameScreen({ aiColors = [] } = {}) {
         // Play the numeric move immediately from this hand slot.
         playNumericOnPawn(card, color, startIdx, index)
       }
+    } else if (indices.length === 1) {
+      // If there is exactly one legal pawn for this card, auto-play that move
+      // instead of waiting for the player to click the only option.
+      const onlyIdx = indices[0]
+      playNumericOnPawn(card, color, onlyIdx, index)
     }
   }
 
@@ -694,7 +775,6 @@ export default function GameScreen({ aiColors = [] } = {}) {
 
         setIsAnimating(false)
         play('move')
-        pushLog(`${color} moved ${numeric}`)
         if (typeof slotIndex === 'number') {
           drawIntoHandSlot(slotIndex)
         }
@@ -772,7 +852,9 @@ export default function GameScreen({ aiColors = [] } = {}) {
 
     // Numeric cards: must click your own pawn with a legal move.
     if (color !== currentColor) return
-    playNumericOnPawn(currentCard, color, idx)
+    // Use the locked-in hand slot (selectedIndex) so the card gets consumed
+    // and replaced after the move resolves.
+    playNumericOnPawn(currentCard, color, idx, selectedIndex)
   }
 
   return (

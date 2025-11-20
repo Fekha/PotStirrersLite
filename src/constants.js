@@ -47,7 +47,7 @@ export const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
 
 // Deck composition (four of each card)
 // Includes special cards: '0' (start-only move) and 'Oops' (reroll the shared hand).
-export const BASE_DECK = [0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 'Sorry', 'Oops']
+export const BASE_DECK = [0, 1, 2, -3, 4, 5, 7, 8, 10, 11, 12, 13, 'Sorry', 'Oops']
 
 // Start zones: four positions near each corner for each color
 export const START_ZONES = {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { auth, db, hasFirebase } from '../firebase'
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth'
-import { collection, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
 
 function pad4(n) {
   return String(n).padStart(4, '0')
@@ -11,7 +11,7 @@ function randomCode() {
   return pad4(Math.floor(Math.random() * 10000))
 }
 
-export default function Lobby({ onStartPassPlay }) {
+export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
   const [user, setUser] = useState(null)
   const [mode, setMode] = useState('home')
   const [code, setCode] = useState('')
@@ -31,6 +31,16 @@ export default function Lobby({ onStartPassPlay }) {
     if (!user) signInAnonymously(auth).catch(() => {})
   }, [user])
 
+  // If we're a guest in a lobby and the host starts the game (status changes
+  // to 'started'), automatically transition into the online GameScreen.
+  useEffect(() => {
+    if (!game || !onOnlineGameStart) return
+    if (mode !== 'guest') return
+    if (game.status === 'started') {
+      onOnlineGameStart(game.code)
+    }
+  }, [game, mode, onOnlineGameStart])
+
   const gamesRef = useMemo(() => (db ? collection(db, 'games') : null), [])
 
   async function createGame() {
@@ -43,7 +53,9 @@ export default function Lobby({ onStartPassPlay }) {
       code: newCode,
       status: 'lobby',
       players: [
-        { uid: user.uid, name: 'Host', joinedAt: serverTimestamp() },
+        // Firestore doesn't allow serverTimestamp() inside arrays; use a
+        // simple client-side timestamp instead.
+        { uid: user.uid, name: 'Host', joinedAt: Date.now() },
       ],
     }, { merge: true })
     setIsHost(true)
@@ -65,16 +77,15 @@ export default function Lobby({ onStartPassPlay }) {
     if (!hasFirebase || !user || !gamesRef || code.length !== 4) return
     setJoining(true)
     const gameRef = doc(gamesRef, code)
-    await runTransaction(db, async (trx) => {
-      const snap = await trx.get(gameRef)
-      if (!snap.exists()) throw new Error('No such game')
-      const data = snap.data()
-      const has = (data.players || []).some((p) => p.uid === user.uid)
-      const players = has
-        ? data.players
-        : [...(data.players || []), { uid: user.uid, name: 'Guest', joinedAt: serverTimestamp() }]
-      trx.update(gameRef, { players })
+    // Use arrayUnion to add this user to the players array. This keeps the
+    // write simple and lets Firestore handle concurrency.
+    await updateDoc(gameRef, {
+      players: arrayUnion({ uid: user.uid, name: 'Guest', joinedAt: Date.now() }),
+    }).catch((err) => {
+      console.error('joinGame update failed', err)
+      throw err
     })
+    console.log('Joined game as guest', code, user.uid)
     setMode('guest')
     subscribe(code)
     setJoining(false)
@@ -84,6 +95,9 @@ export default function Lobby({ onStartPassPlay }) {
     if (!hasFirebase || !game || !isHost || !gamesRef) return
     const gameRef = doc(gamesRef, game.code)
     await updateDoc(gameRef, { status: 'started' })
+    // Notify the parent App so it can switch to the online GameScreen
+    // for this room code.
+    if (onOnlineGameStart) onOnlineGameStart(game.code)
   }
 
   function press(n) {
@@ -144,7 +158,9 @@ export default function Lobby({ onStartPassPlay }) {
               <div className="text-6xl font-extrabold tracking-widest tabular-nums">{code}</div>
             </div>
             <div className="rounded border border-zinc-800 p-3">
-              <div className="font-semibold mb-2">Waiting Room</div>
+              <div className="font-semibold mb-2">
+                Waiting Room ({(game?.players?.length || 0)}/4)
+              </div>
               <ul className="space-y-1">
                 {(game?.players || []).map((p) => (
                   <li key={p.uid} className="flex items-center justify-between">
@@ -155,7 +171,7 @@ export default function Lobby({ onStartPassPlay }) {
               </ul>
             </div>
             <button
-              disabled={(game?.players?.length || 0) < 2}
+              disabled={!game || !isHost}
               className="w-full py-3 rounded bg-green-600 text-white disabled:opacity-50"
               onClick={startGame}
             >Start Game</button>

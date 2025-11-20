@@ -251,9 +251,9 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">
-        Cards 0, 1, or 2 can move a pawn out of Start.
+        Cards 0, 1, 2, or -3 can move a pawn out of Start.
         <br />
-        Landing on any slide space moves you to the end and bumps others. 
+        Landing on any slide space moves you to the end and bumps others.
         <br />
         Colored inner lanes are safe zones – get all four of your pawns into your lane to win.
       </div>
