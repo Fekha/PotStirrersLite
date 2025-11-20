@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
-import { SLIDES } from '../constants'
+import { SLIDES, HOME_PATHS, BOARD_PATH } from '../constants'
 
 const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
 
@@ -24,18 +24,51 @@ function shuffle(arr) {
 function initialPawns() {
   const result = {}
   for (const c of COLORS) {
-    result[c] = Array.from({ length: 4 }, () => ({ position: 'start' }))
+    result[c] = Array.from({ length: 4 }, () => ({ region: 'start' }))
   }
   return result
 }
 
 // Entry indices on the main track when leaving Start.
-// These are aligned with the visually highlighted squares on the perimeter.
+// These will be used as the entry points into the safety/home lanes.
 const START_INDEX = {
   Red: 1,
   Blue: 16,
   Yellow: 31,
   Green: 46,
+}
+
+// Chosen entry points from the main loop into each color's safety/home path.
+// These are computed as the track cell closest to the first HOME_PATH point
+// for that color, so they stay aligned with your board geometry.
+const HOME_ENTRY_INDEX = (() => {
+  const result = {}
+  for (const color of COLORS) {
+    const homePath = HOME_PATHS[color]
+    if (!homePath || !homePath.length) continue
+    const entryTarget = homePath[0]
+    let bestIndex = 0
+    let bestDist = Number.POSITIVE_INFINITY
+    BOARD_PATH.forEach((p, i) => {
+      const dx = p.x - entryTarget.x
+      const dy = p.y - entryTarget.y
+      const d2 = dx * dx + dy * dy
+      if (d2 < bestDist) {
+        bestDist = d2
+        bestIndex = i
+      }
+    })
+    result[color] = bestIndex
+  }
+  return result
+})()
+
+function isOnTrack(pawn) {
+  return pawn?.region === 'track' && typeof pawn.index === 'number'
+}
+
+function isInStart(pawn) {
+  return pawn?.region === 'start'
 }
 
 function getMovableFor(card, color, pawnsByColor) {
@@ -49,11 +82,8 @@ function getMovableFor(card, color, pawnsByColor) {
   const indices = []
 
   list.forEach((pawn, idx) => {
-    if (pawn.position === 'start') {
-      if (numeric === 1 || numeric === 2) indices.push(idx)
-      return
-    }
-    if (typeof pawn.position === 'number') indices.push(idx)
+    const { canMove } = simulateMove(color, pawn, numeric)
+    if (canMove) indices.push(idx)
   })
 
   if (!indices.length) return null
@@ -62,31 +92,109 @@ function getMovableFor(card, color, pawnsByColor) {
 
 function hasSorryMove(color, pawnsByColor) {
   const mine = pawnsByColor[color] || []
-  const hasStart = mine.some((p) => p.position === 'start')
+  const hasStart = mine.some(isInStart)
   if (!hasStart) return false
 
   // Need at least one opponent pawn on the track
   for (const c of COLORS) {
     if (c === color) continue
     const list = pawnsByColor[c] || []
-    if (list.some((p) => typeof p.position === 'number')) return true
+    if (list.some(isOnTrack)) return true
   }
   return false
 }
 
+// Simulate moving a pawn forward a given number of steps, including
+// entering its safety/home path. Does not apply bumps or slides.
+function simulateMove(color, pawn, steps) {
+  if (!pawn || steps <= 0) return { canMove: false, nextPawn: pawn }
+
+  // Already home: cannot move.
+  if (pawn.region === 'home') return { canMove: false, nextPawn: pawn }
+
+  // Start region: only 1 or 2 can leave. Pawns leave start onto the track at
+  // the index that visually aligns with the start of their home lane
+  // (previously HOME_ENTRY_INDEX).
+  if (pawn.region === 'start') {
+    if (!(steps === 1 || steps === 2)) return { canMove: false, nextPawn: pawn }
+    return {
+      canMove: true,
+      nextPawn: { region: 'track', index: HOME_ENTRY_INDEX[color] },
+    }
+  }
+
+  // Clone pawn to avoid mutating original during simulation.
+  let region = pawn.region
+  let index = pawn.index
+  let safetyIndex = pawn.safetyIndex ?? 0
+  const homePath = HOME_PATHS[color]
+  const lastSafety = homePath.length - 1
+
+  for (let i = 0; i < steps; i++) {
+    if (region === 'track') {
+      // If we're at the lane entry, step into the first safety cell.
+      // Lane entry is the START_INDEX square for that color, which is now
+      // distinct from where pawns first leave start.
+      if (index === START_INDEX[color]) {
+        region = 'safety'
+        index = undefined
+        safetyIndex = 0
+        continue
+      }
+      index = ((index ?? 0) + 1) % 60
+    } else if (region === 'safety') {
+      if (safetyIndex >= lastSafety) {
+        // Would overshoot home; illegal move.
+        return { canMove: false, nextPawn: pawn }
+      }
+      safetyIndex += 1
+    } else {
+      // Any other region is not movable here.
+      return { canMove: false, nextPawn: pawn }
+    }
+  }
+
+  // If we ended on the last safety index, mark as home.
+  if (region === 'safety' && safetyIndex === lastSafety) {
+    return { canMove: true, nextPawn: { region: 'home', safetyIndex } }
+  }
+
+  if (region === 'track') {
+    return { canMove: true, nextPawn: { region: 'track', index } }
+  }
+
+  // Still somewhere in safety path.
+  if (region === 'safety') {
+    return { canMove: true, nextPawn: { region: 'safety', safetyIndex } }
+  }
+
+  return { canMove: false, nextPawn: pawn }
+}
+
+function getWinner(pawns) {
+  for (const color of COLORS) {
+    const list = pawns[color] || []
+    if (list.length && list.every((p) => p && p.region === 'home')) {
+      return color
+    }
+  }
+  return null
+}
+
 function applyBumpsAndSlides(state, color, pawnIndex) {
   const pawn = state[color][pawnIndex]
-  if (!pawn || typeof pawn.position !== 'number') return state
+  if (!pawn || !isOnTrack(pawn)) return state
 
-  let pos = pawn.position
+  let pos = pawn.index
 
   // Bump any pawn already on landing square
   for (const c of COLORS) {
     const list = state[c]
     list.forEach((otherPawn, idx) => {
       if (c === color && idx === pawnIndex) return
-      if (otherPawn.position === pos) {
-        otherPawn.position = 'start'
+      if (isOnTrack(otherPawn) && otherPawn.index === pos) {
+        otherPawn.region = 'start'
+        delete otherPawn.index
       }
     })
   }
@@ -101,13 +209,14 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
             const list = state[c]
             list.forEach((otherPawn, idx) => {
               if (c === color && idx === pawnIndex) return
-              if (otherPawn.position === i) {
-                otherPawn.position = 'start'
+              if (isOnTrack(otherPawn) && otherPawn.index === i) {
+                otherPawn.region = 'start'
+                delete otherPawn.index
               }
             })
           }
         }
-        pawn.position = s.end
+        pawn.index = s.end
         pos = s.end
         return state
       }
@@ -122,6 +231,7 @@ export default function GameScreen() {
   const [currentCard, setCurrentCard] = useState(null)
   const [turnIndex, setTurnIndex] = useState(0)
   const [pawns, setPawns] = useState(() => initialPawns())
+  const [winner, setWinner] = useState(null)
 
   const currentColor = COLORS[turnIndex]
 
@@ -130,6 +240,7 @@ export default function GameScreen() {
   }, [currentCard, currentColor, pawns])
 
   function drawCard() {
+    if (winner) return
     if (currentCard) return
     if (!deck.length) setDeck(buildDeck())
     const d = deck.length ? deck : buildDeck()
@@ -167,7 +278,7 @@ export default function GameScreen() {
   }
 
   function handlePawnClick(color, idx) {
-    if (!currentCard) return
+    if (!currentCard || winner) return
 
     // Snapshot of current state to decide if this click is a legal move.
     const pawn = pawns[color]?.[idx]
@@ -176,11 +287,11 @@ export default function GameScreen() {
     // Sorry: must click an opponent pawn on the track, while you have a start pawn.
     if (currentCard === 'Sorry') {
       if (color === currentColor) return
-      if (pawn.position === 'start') return
+      if (!isOnTrack(pawn)) return
 
       const myList = pawns[currentColor]
       if (!myList) return
-      const startIdx = myList.findIndex((p) => p.position === 'start')
+      const startIdx = myList.findIndex(isInStart)
       if (startIdx === -1) return
 
       // Now we know the click is a valid Sorry move; apply it and advance turn.
@@ -192,11 +303,15 @@ export default function GameScreen() {
         }
         const oppPawn = next[color][idx]
         const myStartPawn = next[currentColor][startIdx]
-        if (!oppPawn || !myStartPawn || oppPawn.position === 'start') return prev
+        if (!oppPawn || !myStartPawn || !isOnTrack(oppPawn)) return prev
 
-        const targetPos = oppPawn.position
-        oppPawn.position = 'start'
-        myStartPawn.position = targetPos
+        const targetPos = oppPawn.index
+        oppPawn.region = 'start'
+        delete oppPawn.index
+        myStartPawn.region = 'track'
+        myStartPawn.index = targetPos
+        const w = getWinner(next)
+        if (w) setWinner(w)
         return next
       })
 
@@ -209,29 +324,26 @@ export default function GameScreen() {
     const numeric = Number(currentCard)
     if (!numeric) return
 
-    const fromStart = pawn.position === 'start'
-    const fromTrack = typeof pawn.position === 'number'
-
-    if (!fromStart && !fromTrack) return
-
-    // Check legality: from start only for 1 or 2.
-    if (fromStart && !(numeric === 1 || numeric === 2)) return
+    const { canMove, nextPawn } = simulateMove(color, pawn, numeric)
+    if (!canMove) return
 
     setPawns((prev) => {
       const next = {
         ...prev,
         [color]: prev[color].map((p) => ({ ...p })),
       }
-      const p = next[color][idx]
-      if (!p) return prev
+      next[color][idx] = { ...nextPawn }
 
-      if (fromStart) {
-        p.position = START_INDEX[color]
-      } else if (fromTrack) {
-        p.position = (p.position + numeric) % 60
+      // Only track-region pawns can bump/slide.
+      if (isOnTrack(next[color][idx])) {
+        const bumped = applyBumpsAndSlides(next, color, idx)
+        const w = getWinner(bumped)
+        if (w) setWinner(w)
+        return bumped
       }
-
-      return applyBumpsAndSlides(next, color, idx)
+      const w = getWinner(next)
+      if (w) setWinner(w)
+      return next
     })
 
     advanceTurn()
@@ -242,7 +354,7 @@ export default function GameScreen() {
       <div className="flex items-center justify-between text-sm">
         <div>
           <div className="text-xs text-zinc-400">Current Player</div>
-          <div className="font-semibold">{currentColor}</div>
+          <div className="font-semibold">{winner || currentColor}</div>
         </div>
         <div className="text-right">
           <div className="text-xs text-zinc-400">Card</div>
@@ -254,9 +366,9 @@ export default function GameScreen() {
       <button
         className="w-full py-2 rounded bg-blue-600 text-white disabled:opacity-50"
         onClick={drawCard}
-        disabled={!!currentCard}
+        disabled={!!currentCard || !!winner}
       >
-        {currentCard ? 'Play a pawn' : 'Draw Card'}
+        {winner ? `Winner: ${winner}` : currentCard ? 'Play a pawn' : 'Draw Card'}
       </button>
       <GameBoard
         pawnsByColor={pawns}
