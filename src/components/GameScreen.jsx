@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
 import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
 
@@ -77,8 +77,20 @@ function isInStart(pawn) {
 }
 
 function getMovableFor(card, color, pawnsByColor) {
-  if (!card) return null
+  if (card === null || card === undefined) return null
   if (card === 'Sorry') return null
+
+  // '0' is a special start-only card: it can only be used to leave Start, and
+  // has no effect on other pawns. We treat only start pawns as movable.
+  if (card === 0) {
+    const list = pawnsByColor[color] || []
+    const indices = []
+    list.forEach((pawn, idx) => {
+      if (pawn && pawn.region === 'start') indices.push(idx)
+    })
+    if (!indices.length) return null
+    return { color, indices }
+  }
 
   const list = pawnsByColor[color] || []
   const numeric = Number(card)
@@ -308,12 +320,30 @@ export default function GameScreen() {
   const [isAnimating, setIsAnimating] = useState(false)
   const [soundOn, setSoundOn] = useState(true)
   const [log, setLog] = useState([])
+  const [hand, setHand] = useState([])
+  const [selectedIndex, setSelectedIndex] = useState(null)
 
   const currentColor = COLORS[turnIndex]
 
   const movable = useMemo(() => {
     return getMovableFor(currentCard, currentColor, pawns)
   }, [currentCard, currentColor, pawns])
+
+  useEffect(() => {
+    // Deal an initial shared hand of 3 cards, drawn from the deck.
+    setDeck((prev) => {
+      let deck = prev.length ? prev : buildDeck()
+      const newHand = []
+      for (let i = 0; i < 3; i++) {
+        if (!deck.length) deck = buildDeck()
+        const [top, ...rest] = deck
+        newHand.push(top)
+        deck = rest
+      }
+      setHand(newHand)
+      return deck
+    })
+  }, [])
 
   function pushLog(entry) {
     setLog((prev) => {
@@ -333,57 +363,192 @@ export default function GameScreen() {
     play('win')
   }
 
-  function drawCard() {
+  function drawIntoHandSlot(slotIndex) {
+    setDeck((prev) => {
+      let deck = prev.length ? prev : buildDeck()
+      const [top, ...rest] = deck
+      setHand((prevHand) => {
+        const next = [...prevHand]
+        next[slotIndex] = top
+        return next
+      })
+      return rest
+    })
+  }
+
+  function handleCardSelect(index) {
     if (winner || isAnimating) return
-    if (currentCard) return
-    if (!deck.length) setDeck(buildDeck())
-    const d = deck.length ? deck : buildDeck()
-    const [top, ...rest] = d
-    if (top === 'Sorry') {
-      const canPlaySorry = hasSorryMove(currentColor, pawns)
-      if (!canPlaySorry) {
-        setDeck(rest)
+    if (selectedIndex !== null) return
+    const card = hand[index]
+    if (card == null) return
+
+    const color = currentColor
+
+    // 'Oops' discards the entire hand and deals three new cards for the same
+    // player, without ending the turn.
+    if (card === 'Oops') {
+      pushLog(`${color} played Oops (new hand)`)
+      play('draw')
+      setDeck((prev) => {
+        let deck = prev.length ? prev : buildDeck()
+        const newHand = []
+        for (let i = 0; i < 3; i++) {
+          if (!deck.length) deck = buildDeck()
+          const [top, ...rest] = deck
+          newHand.push(top)
+          deck = rest
+        }
+        setHand(newHand)
+        return deck
+      })
+      return
+    }
+
+    // Lock in the chosen card for this turn.
+    setCurrentCard(card)
+    setSelectedIndex(index)
+
+    // Sorry is special: it depends on opponent pawns on track.
+    if (card === 'Sorry') {
+      const canPlay = hasSorryMove(color, pawns)
+      if (!canPlay) {
+        pushLog(`${color} discarded Sorry (no moves)`)        
+        play('draw')
         setCurrentCard(null)
-        setTurnIndex((i) => (i + 1) % COLORS.length)
-        pushLog(`${currentColor} drew Sorry (no move)`)        
+        setSelectedIndex(null)
+        drawIntoHandSlot(index)
+        advanceTurn()
         return
       }
-      setDeck(rest)
-      setCurrentCard(top)
-      pushLog(`${currentColor} drew Sorry`)
+      pushLog(`${color} selected Sorry`)
       play('draw')
       return
     }
 
-    const moveInfo = getMovableFor(top, currentColor, pawns)
-
-    // If there are no legal moves for this card, automatically skip to next player.
+    const moveInfo = getMovableFor(card, color, pawns)
     if (!moveInfo) {
-      setDeck(rest)
+      pushLog(`${color} discarded ${card} (no moves)`)      
+      play('draw')
       setCurrentCard(null)
-      setTurnIndex((i) => (i + 1) % COLORS.length)
-      pushLog(`${currentColor} drew ${top} (no moves)`)      
+      setSelectedIndex(null)
+      drawIntoHandSlot(index)
+      advanceTurn()
       return
     }
 
-    setDeck(rest)
-    setCurrentCard(top)
-    pushLog(`${currentColor} drew ${top}`)
+    // Auto-exit from Start: for 0 if any pawn is in start; for 1 or 2 if the
+    // player has no pawns out on the board yet.
+    const list = pawns[color] || []
+    const hasStart = list.some((p) => p && p.region === 'start')
+    const hasOut = list.some((p) => p && (p.region === 'track' || p.region === 'safety'))
+    const isOneOrTwo = card === 1 || card === 2
+    const shouldAuto = (card === 0 && hasStart) || (isOneOrTwo && hasStart && !hasOut)
+
+    pushLog(`${color} selected ${card}`)
     play('draw')
+
+    if (shouldAuto) {
+      const startIdx = list.findIndex((p) => p && p.region === 'start')
+      if (startIdx !== -1) {
+        // Play the numeric move immediately from this hand slot.
+        playNumericOnPawn(card, color, startIdx, index)
+      }
+    }
   }
 
   function advanceTurn() {
     setCurrentCard(null)
+    setSelectedIndex(null)
     setTurnIndex((i) => (i + 1) % COLORS.length)
   }
 
   function resetGame() {
-    setDeck(buildDeck())
+    setDeck((prev) => {
+      let deck = buildDeck()
+      const newHand = []
+      for (let i = 0; i < 3; i++) {
+        if (!deck.length) deck = buildDeck()
+        const [top, ...rest] = deck
+        newHand.push(top)
+        deck = rest
+      }
+      setHand(newHand)
+      return deck
+    })
     setCurrentCard(null)
+    setSelectedIndex(null)
     setTurnIndex(0)
     setPawns(initialPawns())
     setWinner(null)
+    setIsAnimating(false)
     setLog([])
+  }
+
+  function playNumericOnPawn(cardValue, color, pawnIndex, slotIndex) {
+    const isZeroCard = cardValue === 0
+    const numeric = isZeroCard ? 1 : Number(cardValue)
+    if (!numeric) return
+
+    const pawn = pawns[color]?.[pawnIndex]
+    if (!pawn) return
+
+    // '0' can only be used to leave Start; it has no effect on other pawns.
+    if (isZeroCard && pawn.region !== 'start') return
+
+    const { canMove } = simulateMove(color, pawn, numeric)
+    if (!canMove) return
+
+    const frames = getMoveFrames(color, pawn, numeric)
+    if (!frames.length) return
+
+    setIsAnimating(true)
+
+    const stepMs = 220
+
+    function applyFrame(stepIndex) {
+      if (stepIndex >= frames.length) {
+        // After the last step, apply bumps/slides and winner detection once,
+        // then advance the turn and clear animation state.
+        setPawns((prev) => {
+          const finalPawn = frames[frames.length - 1]
+          const next = {
+            ...prev,
+            [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...finalPawn } : { ...p })),
+          }
+
+          if (isOnTrack(next[color][pawnIndex])) {
+            const bumped = applyBumpsAndSlides(next, color, pawnIndex)
+            const w = getWinner(bumped)
+            if (w) setWinnerAndLog(w)
+            return bumped
+          }
+          const w = getWinner(next)
+          if (w) setWinnerAndLog(w)
+          return next
+        })
+
+        setIsAnimating(false)
+        play('move')
+        pushLog(`${color} moved ${numeric}`)
+        if (typeof slotIndex === 'number') {
+          drawIntoHandSlot(slotIndex)
+        }
+        setSelectedIndex(null)
+        setCurrentCard(null)
+        advanceTurn()
+        return
+      }
+
+      const frame = frames[stepIndex]
+      setPawns((prev) => ({
+        ...prev,
+        [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...frame } : { ...p })),
+      }))
+
+      setTimeout(() => applyFrame(stepIndex + 1), stepMs)
+    }
+
+    applyFrame(0)
   }
 
   function handlePawnClick(color, idx) {
@@ -426,74 +591,29 @@ export default function GameScreen() {
 
       pushLog(`${currentColor} played Sorry on ${color}`)
       play('sorry')
+      if (selectedIndex !== null) {
+        drawIntoHandSlot(selectedIndex)
+        setSelectedIndex(null)
+        setCurrentCard(null)
+      }
       advanceTurn()
       return
     }
 
     // Numeric cards: must click your own pawn with a legal move.
     if (color !== currentColor) return
-    const numeric = Number(currentCard)
-    if (!numeric) return
-
-    const { canMove } = simulateMove(color, pawn, numeric)
-    if (!canMove) return
-
-    const frames = getMoveFrames(color, pawn, numeric)
-    if (!frames.length) return
-
-    setIsAnimating(true)
-
-    const stepMs = 220
-
-    function applyFrame(stepIndex) {
-      if (stepIndex >= frames.length) {
-        // After the last step, apply bumps/slides and winner detection once,
-        // then advance the turn and clear animation state.
-        setPawns((prev) => {
-          const finalPawn = frames[frames.length - 1]
-          const next = {
-            ...prev,
-            [color]: prev[color].map((p, i) => (i === idx ? { ...finalPawn } : { ...p })),
-          }
-
-          if (isOnTrack(next[color][idx])) {
-            const bumped = applyBumpsAndSlides(next, color, idx)
-            const w = getWinner(bumped)
-            if (w) setWinnerAndLog(w)
-            return bumped
-          }
-          const w = getWinner(next)
-          if (w) setWinnerAndLog(w)
-          return next
-        })
-
-        setIsAnimating(false)
-        play('move')
-        pushLog(`${color} moved ${numeric}`)
-        advanceTurn()
-        return
-      }
-
-      const frame = frames[stepIndex]
-      setPawns((prev) => ({
-        ...prev,
-        [color]: prev[color].map((p, i) => (i === idx ? { ...frame } : { ...p })),
-      }))
-
-      setTimeout(() => applyFrame(stepIndex + 1), stepMs)
-    }
-
-    applyFrame(0)
+    playNumericOnPawn(currentCard, color, idx)
   }
 
   return (
     <div className="w-full max-w-xl mx-auto space-y-3 relative">
       <div className="flex items-center justify-between text-sm">
-        <div>
+        <div className="w-20" />
+        <div className="flex flex-col items-center flex-1">
           <div className="text-xs text-zinc-400">Current Player</div>
           <div className="font-semibold">{winner || currentColor}</div>
         </div>
-        <div className="flex items-center gap-4 text-right">
+        <div className="flex items-center justify-end w-20">
           <button
             type="button"
             onClick={() => setSoundOn((v) => !v)}
@@ -501,36 +621,42 @@ export default function GameScreen() {
           >
             Sound: {soundOn ? 'On' : 'Off'}
           </button>
-          <div>
-            <div className="text-xs text-zinc-400">Card</div>
-            <div className="text-xl font-bold min-w-[3rem] text-right">
-              {currentCard ?? '—'}
-            </div>
-          </div>
         </div>
       </div>
-      <button
-        className="w-full py-2 rounded bg-blue-600 text-white disabled:opacity-50"
-        onClick={drawCard}
-        disabled={!!currentCard || !!winner}
-      >
-        {winner ? `Winner: ${winner}` : currentCard ? 'Play a pawn' : 'Draw Card'}
-      </button>
+      <div className="flex justify-center gap-3 mt-2">
+        {hand.map((card, index) => {
+          const isSelected = selectedIndex === index
+          const disabled = winner || isAnimating || selectedIndex !== null
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => handleCardSelect(index)}
+              disabled={disabled}
+              className={`w-10 h-16 px-1 py-1 rounded border text-xs font-semibold disabled:opacity-40 flex items-center justify-center ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-300 text-white'
+                  : 'bg-zinc-900 border-zinc-600 text-zinc-100'
+              }`}
+            >
+              {card ?? '—'}
+            </button>
+          )
+        })}
+      </div>
       <GameBoard
         pawnsByColor={pawns}
         onPawnClick={handlePawnClick}
         activeColor={currentColor}
         movable={movable}
       />
-      {log.length > 0 && (
-        <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 max-h-32 overflow-y-auto">
-          {log.map((entry, i) => (
-            <div key={i} className="text-left text-zinc-300">
-              {entry}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
+        {log.map((entry, i) => (
+          <div key={i} className="text-left text-zinc-300">
+            {entry}
+          </div>
+        ))}
+      </div>
       {winner && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-700 rounded-2xl px-6 py-4 shadow-xl text-center space-y-2">
