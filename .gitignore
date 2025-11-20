@@ -35,6 +35,7 @@ coverage
 .turbo
 .parcel-cache
 .eslintcache
+.vite
 
 # OS / miscellaneous
 Thumbs.db

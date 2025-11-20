@@ -13,21 +13,20 @@ function getSlideInfo(index) {
 }
 
 const slideColors = {
-  Red: 'bg-red-500/80 border-red-300',
-  Blue: 'bg-sky-500/80 border-sky-300',
-  Yellow: 'bg-yellow-400/80 border-yellow-200',
-  Green: 'bg-emerald-500/80 border-emerald-300',
+  Red: 'border-red-400 bg-red-500/10',
+  Blue: 'border-sky-400 bg-sky-500/10',
+  Yellow: 'border-yellow-400 bg-yellow-400/10',
+  Green: 'border-emerald-400 bg-emerald-500/10',
 }
 
 export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable }) {
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
-    let base = 'absolute w-5 h-5 sm:w-6 sm:h-6 border border-zinc-700 bg-zinc-900/80'
+    let base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border border-zinc-700 bg-zinc-900/80'
     if (slide) {
-      // Slides are rendered as rotated colored diamonds so they are very obvious.
-      base = 'absolute w-5 h-5 sm:w-6 sm:h-6 border rotate-45 ' + (slideColors[slide.color] || '')
-      if (slide.type === 'start') base += ' ring-4 ring-white'
-      if (slide.type === 'end') base += ' ring-2 ring-zinc-100'
+      base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
+      if (slide.type === 'start') base += ' ring-2 ring-current'
+      if (slide.type === 'end') base += ' ring-1 ring-current'
     }
 
     return (
