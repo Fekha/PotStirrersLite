@@ -107,9 +107,19 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
     if (!hasFirebase || !game || !isHost || !gamesRef) return
     const gameRef = doc(gamesRef, game.code)
     const players = game.players || []
+
+    // Deduplicate players by uid so a single user cannot occupy multiple
+    // seats, even if they appear multiple times in the players array.
+    const byUid = {}
+    for (const p of players) {
+      if (!p || !p.uid) continue
+      if (!byUid[p.uid]) byUid[p.uid] = p
+    }
+    const uniquePlayers = Object.values(byUid)
+
     const hostUid = game.host
-    const hostPlayer = players.find((p) => p.uid === hostUid) || players[0]
-    const others = players.filter((p) => !hostPlayer || p.uid !== hostPlayer.uid)
+    const hostPlayer = uniquePlayers.find((p) => p.uid === hostUid) || uniquePlayers[0]
+    const others = uniquePlayers.filter((p) => !hostPlayer || p.uid !== hostPlayer.uid)
     const orderedPlayers = [hostPlayer, ...others.sort((a, b) => (a.uid || '').localeCompare(b.uid || ''))].filter(
       Boolean
     )
@@ -149,6 +159,7 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
       hand,
       turnIndex: 0,
       winner: null,
+      log: [],
     }
 
     await updateDoc(gameRef, { status: 'started', seats, state })
@@ -220,7 +231,7 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
               </div>
               <ul className="space-y-1">
                 {(game?.players || []).map((p) => (
-                  <li key={p.uid} className="flex items-center justify-between">
+                  <li key={`${p.uid}-${p.joinedAt || 0}`} className="flex items-center justify-between">
                     <span className="truncate">{p.name || p.uid.slice(0, 6)}</span>
                     <span className="text-xs text-zinc-500">joined</span>
                   </li>
@@ -269,7 +280,7 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
               <div className="font-semibold mb-2">Waiting Room</div>
               <ul className="space-y-1">
                 {(game?.players || []).map((p) => (
-                  <li key={p.uid} className="flex items-center justify-between">
+                  <li key={`${p.uid}-${p.joinedAt || 0}`} className="flex items-center justify-between">
                     <span className="truncate">{p.name || p.uid.slice(0, 6)}</span>
                     <span className="text-xs text-zinc-500">joined</span>
                   </li>

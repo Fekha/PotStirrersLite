@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
 import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
 import { auth, db, hasFirebase } from '../firebase'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
+
+const COLOR_TEXT = {
+  Red: 'text-red-300',
+  Blue: 'text-sky-300',
+  Yellow: 'text-yellow-300',
+  Green: 'text-emerald-300',
+}
 
 function buildDeck() {
   const deck = []
@@ -370,6 +377,8 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   // and derive the local player's color and AI-controlled colors.
   const [localColor, setLocalColor] = useState(null)
   const [onlineAiColors, setOnlineAiColors] = useState([])
+  const [isHostClient, setIsHostClient] = useState(false)
+  const [pendingSync, setPendingSync] = useState(false)
 
   const isOnline = !!gameCode && hasFirebase && db && auth
 
@@ -420,8 +429,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       if (me) {
         const mySeat = seats.find((s) => s && s.uid === me.uid)
         setLocalColor(mySeat ? mySeat.color : null)
+        setIsHostClient(data.host && data.host === me.uid)
       } else {
         setLocalColor(null)
+        setIsHostClient(false)
       }
       setOnlineAiColors(seats.filter((s) => s && s.isAI).map((s) => s.color))
 
@@ -432,12 +443,14 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         if (Array.isArray(sharedState.hand)) setHand(sharedState.hand)
         if (typeof sharedState.turnIndex === 'number') setTurnIndex(sharedState.turnIndex)
         setWinner(sharedState.winner || null)
+        if (Array.isArray(sharedState.log)) setLog(sharedState.log)
       }
     })
     return () => {
       unsub()
       setLocalColor(null)
       setOnlineAiColors([])
+      setIsHostClient(false)
     }
   }, [isOnline, gameCode])
 
@@ -459,11 +472,54 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     })
   }, [isOnline])
 
+  // When we have made a local move in an online game, push the updated shared
+  // state (pawns, deck, hand, turnIndex, winner) back to Firestore so that
+  // all clients stay in sync.
+  useEffect(() => {
+    if (!isOnline || !pendingSync || !gameCode) return
+    const gameRef = doc(db, 'games', gameCode)
+    const state = {
+      pawns,
+      deck,
+      hand,
+      turnIndex,
+      winner,
+      log,
+    }
+    const update = { state }
+    if (winner) update.status = 'finished'
+    updateDoc(gameRef, update).catch((err) => {
+      console.error('Failed to sync game state', err)
+    }).finally(() => {
+      setPendingSync(false)
+    })
+  }, [isOnline, pendingSync, gameCode, pawns, deck, hand, turnIndex, winner, log])
+
+  // When an online game finishes, clear the lastOnlineGameCode marker in
+  // localStorage so refreshes return to the lobby instead of a completed game.
+  useEffect(() => {
+    if (!isOnline || !gameCode) return
+    if (!winner) return
+    if (typeof window === 'undefined') return
+    try {
+      const saved = window.localStorage.getItem('lastOnlineGameCode')
+      if (saved === gameCode) {
+        window.localStorage.removeItem('lastOnlineGameCode')
+      }
+    } catch {
+      // ignore
+    }
+  }, [isOnline, gameCode, winner])
+
   const effectiveAiColors = isOnline ? onlineAiColors : aiColors
 
   // --- Simple AI opponents ---
   useEffect(() => {
     if (winner || isAnimating) return
+
+    // In online games, only the host client is responsible for running AI
+    // turns to avoid duplicate moves.
+    if (isOnline && !isHostClient) return
 
     const aiColor = currentColor
     if (!effectiveAiColors || !effectiveAiColors.includes(aiColor)) return
@@ -624,6 +680,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       const next = [`${entry}`, ...prev]
       return next.slice(0, 7)
     })
+    if (isOnline) setPendingSync(true)
   }
 
   function play(type) {
@@ -662,8 +719,15 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card == null) return
 
     // In online games, only the client whose color matches the current turn
-    // may interact.
-    if (isOnline && localColor && currentColor !== localColor) return
+    // may interact – except that the host client is allowed to act for AI
+    // colors when it is their turn.
+    const isAiTurnForHost =
+      isOnline &&
+      isHostClient &&
+      effectiveAiColors &&
+      effectiveAiColors.includes(currentColor)
+
+    if (isOnline && localColor && currentColor !== localColor && !isAiTurnForHost) return
 
     const color = currentColor
 
@@ -684,6 +748,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         setHand(newHand)
         return deck
       })
+      if (isOnline) setPendingSync(true)
       return
     }
 
@@ -716,6 +781,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       setSelectedIndex(null)
       drawIntoHandSlot(index)
       advanceTurn()
+      if (isOnline) setPendingSync(true)
       return
     }
 
@@ -833,6 +899,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         setSelectedIndex(null)
         setCurrentCard(null)
         advanceTurn()
+        if (isOnline) setPendingSync(true)
         return
       }
 
@@ -883,6 +950,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setSelectedIndex(null)
     setCurrentCard(null)
     advanceTurn()
+    if (isOnline) setPendingSync(true)
   }
 
   function handlePawnClick(color, idx) {
@@ -918,8 +986,20 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       <div className="flex items-center justify-between text-sm">
         <div className="w-20" />
         <div className="flex flex-col items-center flex-1">
-          <div className="text-xs text-zinc-400">Current Player</div>
-          <div className="font-semibold">{winner || currentColor}</div>
+          <div className="text-[11px] text-zinc-400">
+            {isOnline && localColor ? (
+              <span>
+                Your color:{' '}
+                <span className={`font-semibold ${COLOR_TEXT[localColor] || 'text-zinc-200'}`}>{localColor}</span>
+              </span>
+            ) : null}
+          </div>
+          <div className="text-xs text-zinc-400">
+            Current player:{' '}
+            <span className={`font-semibold ${COLOR_TEXT[winner || currentColor] || 'text-zinc-200'}`}>
+              {winner || currentColor}
+            </span>
+          </div>
         </div>
         <div className="flex items-center justify-end w-20">
           <button
