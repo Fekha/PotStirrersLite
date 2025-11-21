@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { auth, db, hasFirebase } from '../firebase'
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
@@ -31,6 +31,7 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGa
   const [isHost, setIsHost] = useState(false)
   const [joining, setJoining] = useState(false)
   const [aiCount, setAiCount] = useState(0)
+  const gameUnsubRef = useRef(null)
 
   useEffect(() => {
     if (!hasFirebase || !auth) return
@@ -55,6 +56,20 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGa
 
   const gamesRef = useMemo(() => (db ? collection(db, 'games') : null), [])
 
+  function clearSubscription() {
+    if (gameUnsubRef.current) {
+      gameUnsubRef.current()
+      gameUnsubRef.current = null
+    }
+    setGame(null)
+  }
+
+  useEffect(() => {
+    return () => {
+      clearSubscription()
+    }
+  }, [])
+
   async function createGame() {
     if (!hasFirebase || !user || !gamesRef) return
     const newCode = randomCode()
@@ -76,10 +91,15 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGa
     subscribe(newCode)
   }
 
-  async function subscribe(c) {
-    if (!hasFirebase || !gamesRef) return () => {}
+  function subscribe(c) {
+    if (!hasFirebase || !gamesRef) return
+    // Tear down any previous room listener.
+    if (gameUnsubRef.current) {
+      gameUnsubRef.current()
+      gameUnsubRef.current = null
+    }
     const gameRef = doc(gamesRef, c)
-    return onSnapshot(gameRef, (snap) => {
+    gameUnsubRef.current = onSnapshot(gameRef, (snap) => {
       if (snap.exists()) setGame({ id: snap.id, ...snap.data() })
       else setGame(null)
     })
@@ -278,7 +298,14 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGa
                 >{k}</button>
               ))}
             </div>
-            <button className="w-full py-3 rounded bg-zinc-700 text-white" onClick={() => { setCode(''); setMode('home') }}>Back</button>
+            <button
+              className="w-full py-3 rounded bg-zinc-700 text-white"
+              onClick={() => {
+                setCode('')
+                clearSubscription()
+                setMode('home')
+              }}
+            >Back</button>
             <button disabled={joining || code.length !== 4} className="w-full py-3 rounded bg-blue-600 text-white disabled:opacity-50" onClick={joinGame}>Join</button>
           </div>
         )}

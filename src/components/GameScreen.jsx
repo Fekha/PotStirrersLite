@@ -10,6 +10,7 @@ import {
   computeThreatAgainst,
   chooseAiNumericPlay,
   chooseAiSorryPlay,
+  chooseAiSwapPlay,
 } from '../aiLogic'
 import { auth, db, hasFirebase } from '../firebase'
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
@@ -151,15 +152,6 @@ function getMoveFrames(color, pawn, steps) {
     }
   }
 
-  // If we ended up exactly on the last safety index, that step is really
-  // "home" in the game logic.
-  if (frames.length && homePath && homePath.length && steps > 0) {
-    const last = frames[frames.length - 1]
-    if (last.region === 'safety' && last.safetyIndex === lastSafety) {
-      frames[frames.length - 1] = { region: 'home', safetyIndex: lastSafety }
-    }
-  }
-
   return frames
 }
 
@@ -168,11 +160,8 @@ function getMoveFrames(color, pawn, steps) {
 function simulateMove(color, pawn, steps) {
   if (!pawn || steps === 0) return { canMove: false, nextPawn: pawn }
 
-  // Already home: cannot move.
-  if (pawn.region === 'home') return { canMove: false, nextPawn: pawn }
-
   // Start region: any numeric card with value <= 2 can leave (including
-  // backward cards like -6). Pawns leave start onto the track at
+  // backward cards like -1 or -6). Pawns leave start onto the track at
   // START_INDEX[color], which you can tweak in constants.js.
   if (pawn.region === 'start') {
     if (!(typeof steps === 'number' && steps <= 2)) return { canMove: false, nextPawn: pawn }
@@ -227,11 +216,6 @@ function simulateMove(color, pawn, steps) {
     }
   }
 
-  // If we ended on the last safety index, mark as home.
-  if (region === 'safety' && safetyIndex === lastSafety) {
-    return { canMove: true, nextPawn: { region: 'home', safetyIndex } }
-  }
-
   if (region === 'track') {
     return { canMove: true, nextPawn: { region: 'track', index } }
   }
@@ -249,9 +233,7 @@ function getWinner(pawns) {
     const list = pawns[color] || []
     if (!list.length) continue
 
-    const inSafe = list.filter(
-      (p) => p && (p.region === 'safety' || p.region === 'home') && typeof p.safetyIndex === 'number'
-    )
+    const inSafe = list.filter((p) => p && p.region === 'safety' && typeof p.safetyIndex === 'number')
 
     // New win condition: all four pawns in the safety/home lane. There are 6
     // lane tiles; you just need to occupy 4 of them with your pawns.
@@ -344,7 +326,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (isAnimating || winner) return {}
     if (currentCard === null || currentCard === undefined) return {}
     if (!movable) return {}
-    if (currentCard === 'Sorry' || currentCard === 'Oops') return {}
+    if (currentCard === 'Sorry' || currentCard === 'Shuffle' || currentCard === 'Swap') return {}
 
     const color = movable.color
     const indices = movable.indices || []
@@ -486,6 +468,34 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       return
     }
 
+    const swapPlay = chooseAiSwapPlay(aiColor, hand, pawns)
+    if (swapPlay) {
+      const { swapIndex, srcIndex, dstColor, dstIndex } = swapPlay
+      setPawns((prev) => {
+        const next = {
+          ...prev,
+          [aiColor]: prev[aiColor].map((p) => ({ ...p })),
+          [dstColor]: prev[dstColor].map((p) => ({ ...p })),
+        }
+        const a = next[aiColor][srcIndex]
+        const b = next[dstColor][dstIndex]
+        if (!a || !b || !isOnTrack(a) || !isOnTrack(b)) return prev
+
+        next[aiColor][srcIndex] = { ...b }
+        next[dstColor][dstIndex] = { ...a }
+        const w = getWinner(next)
+        if (w) setWinnerAndLog(w)
+        return next
+      })
+
+      pushLog(`${aiColor} (AI) plays Swap`)
+      play('move')
+      drawIntoHandSlot(swapPlay.swapIndex)
+      advanceTurn()
+      if (isOnline) setPendingSync(true)
+      return
+    }
+
     const best = chooseAiNumericPlay({
       aiColor,
       hand,
@@ -504,15 +514,15 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       return
     }
 
-    // 3) No numeric or Sorry moves: try 'Oops' to reroll the hand.
-    const oopsIndex = hand.findIndex((c) => c === 'Oops')
-    if (oopsIndex !== -1) {
-      handleCardSelect(oopsIndex)
+    // 3) No numeric or Sorry moves: try 'Shuffle' to reroll the hand.
+    const shuffleIndex = hand.findIndex((c) => c === 'Shuffle')
+    if (shuffleIndex !== -1) {
+      handleCardSelect(shuffleIndex)
       return
     }
 
-    // Otherwise, discard the first available card using existing logic.
-    const fallbackIndex = hand.findIndex((c) => c != null)
+    // Otherwise, discard the first available non-special card using existing logic.
+    const fallbackIndex = hand.findIndex((c) => typeof c === 'number' || c === 'Sorry' || c === 'Shuffle')
     if (fallbackIndex !== -1) {
       handleCardSelect(fallbackIndex)
     }
@@ -560,6 +570,20 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     })
   }
 
+  function hasSwapMove(pawnsByColor, playerColor) {
+    const myList = pawnsByColor[playerColor] || []
+    const hasMine = myList.some(isOnTrack)
+    if (!hasMine) return false
+
+    for (const c of COLORS) {
+      if (c === playerColor) continue
+      const list = pawnsByColor[c] || []
+      if (list.some(isOnTrack)) return true
+    }
+
+    return false
+  }
+
   function handleCardSelect(index) {
     if (winner || isAnimating) return
     const card = hand[index]
@@ -578,10 +602,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     const color = currentColor
 
-    // 'Oops' discards the entire hand and deals three new cards for the same
+    // 'Shuffle' discards the entire hand and deals three new cards for the same
     // player, without ending the turn.
-    if (card === 'Oops') {
-      pushLog(`${color} played Oops (new hand)`)
+    if (card === 'Shuffle') {
+      pushLog(`${color} played Shuffle (new hand)`)
       play('draw')
       setDeck((prev) => {
         let deck = prev.length ? prev : buildDeck()
@@ -596,6 +620,29 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         return deck
       })
       if (isOnline) setPendingSync(true)
+      return
+    }
+
+    // 'Swap' lets you choose two pawns from different colors on the track and
+    // swap their positions. If you have no track pawns, or there are no
+    // opponent track pawns, it is discarded.
+    if (card === 'Swap') {
+      const canSwap = hasSwapMove(pawns, color)
+      if (!canSwap) {
+        pushLog(`${color} discarded Swap (no targets)`)
+        play('draw')
+        setCurrentCard(null)
+        setSelectedIndex(null)
+        drawIntoHandSlot(index)
+        advanceTurn()
+        if (isOnline) setPendingSync(true)
+        return
+      }
+
+      setCurrentCard('Swap')
+      setSelectedIndex(index)
+      setSwapSource(null)
+      play('draw')
       return
     }
 
@@ -679,6 +726,42 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setLog([])
   }
 
+  const [swapSource, setSwapSource] = useState(null)
+
+  const swapHighlight = useMemo(() => {
+    if (currentCard !== 'Swap') return null
+
+    const map = {}
+
+    // First click: highlight this player's own track pawns.
+    if (!swapSource) {
+      const list = pawns[currentColor] || []
+      const indices = []
+      list.forEach((pawn, idx) => {
+        if (pawn && isOnTrack(pawn)) indices.push(idx)
+      })
+      if (indices.length) {
+        map[currentColor] = indices
+      }
+      return Object.keys(map).length ? map : null
+    }
+
+    // Second click: highlight all opponent track pawns.
+    for (const c of COLORS) {
+      if (c === swapSource.color) continue
+      const list = pawns[c] || []
+      const indices = []
+      list.forEach((pawn, idx) => {
+        if (pawn && isOnTrack(pawn)) indices.push(idx)
+      })
+      if (indices.length) {
+        map[c] = indices
+      }
+    }
+
+    return Object.keys(map).length ? map : null
+  }, [currentCard, currentColor, pawns, swapSource])
+
   function playNumericOnPawn(cardValue, color, pawnIndex, slotIndex) {
     const isZeroCard = cardValue === 0
     const numeric = isZeroCard ? 1 : Number(cardValue)
@@ -700,9 +783,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     // Shorter per-step duration so long moves feel smoother and less stuttery.
     const stepMs = 140
-    // In online games, we only sync some intermediate frames to reduce
-    // network jitter; the final state always syncs in the completion branch.
-    const syncEvery = 3
 
     function applyFrame(stepIndex) {
       if (stepIndex >= frames.length) {
@@ -744,15 +824,11 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...frame } : { ...p })),
       }))
 
-      // In online games, push only a subset of intermediate frames so remote
-      // players see movement progressing, but avoid syncing every single step
-      // to reduce choppiness and network load. Always sync the first frame,
-      // and then every `syncEvery` frames on longer moves. The last frame is
-      // guaranteed to sync from the completion branch above.
-      if (
-        isOnline &&
-        (stepIndex === 0 || (frames.length > 4 && stepIndex % syncEvery === 0))
-      ) {
+      // In online games, only sync the very first frame so remote clients see
+      // movement start promptly; the final state is synced from the
+      // completion branch above. Intermediate frames remain local only to
+      // reduce write frequency.
+      if (isOnline && stepIndex === 0) {
         setPendingSync(true)
       }
 
@@ -813,6 +889,56 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const pawn = pawns[color]?.[idx]
     if (!pawn) return
 
+    // Swap: choose two pawns from different colors on the track.
+    if (currentCard === 'Swap') {
+      const pawn = pawns[color]?.[idx]
+      if (!pawn || !isOnTrack(pawn)) return
+
+      if (!swapSource) {
+        // First selection must be one of your own pawns.
+        if (color !== currentColor) return
+        setSwapSource({ color, idx })
+        return
+      }
+
+      const { color: srcColor, idx: srcIdx } = swapSource
+      // Require different teams.
+      if (color === srcColor) {
+        // Re-select a different source pawn of the same color.
+        setSwapSource({ color, idx })
+        return
+      }
+
+      setPawns((prev) => {
+        const next = {
+          ...prev,
+          [srcColor]: prev[srcColor].map((p) => ({ ...p })),
+          [color]: prev[color].map((p) => ({ ...p })),
+        }
+        const a = next[srcColor][srcIdx]
+        const b = next[color][idx]
+        if (!a || !b || !isOnTrack(a) || !isOnTrack(b)) return prev
+
+        next[srcColor][srcIdx] = { ...b }
+        next[color][idx] = { ...a }
+        const w = getWinner(next)
+        if (w) setWinnerAndLog(w)
+        return next
+      })
+
+      pushLog(`${currentColor} played Swap`)
+      play('move')
+      if (typeof selectedIndex === 'number') {
+        drawIntoHandSlot(selectedIndex)
+      }
+      setSwapSource(null)
+      setSelectedIndex(null)
+      setCurrentCard(null)
+      advanceTurn()
+      if (isOnline) setPendingSync(true)
+      return
+    }
+
     // Sorry: must click an opponent pawn on the track, while you have a start pawn.
     if (currentCard === 'Sorry') {
       if (color === currentColor) return
@@ -825,6 +951,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     // Numeric cards: must click your own pawn with a legal move.
     if (color !== currentColor) return
+
+    // Only allow and log the move if this pawn is actually in the movable set
+    // for the current card, to avoid duplicate logs on invalid clicks.
+    const moveInfo = getMovableFor(currentCard, color, pawns)
+    const indices = moveInfo?.indices || []
+    if (!indices.includes(idx)) return
+
     // Use the locked-in hand slot (selectedIndex) so the card gets consumed
     // and replaced after the move resolves.
     if (selectedIndex !== null) {
@@ -873,7 +1006,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
               type="button"
               onClick={() => handleCardSelect(index)}
               disabled={disabled}
-              className={`w-10 h-16 px-1 py-1 rounded border text-xs font-semibold disabled:opacity-40 flex items-center justify-center ${
+              className={`w-12 h-18 px-1.5 py-1.5 rounded border text-xs font-semibold disabled:opacity-40 flex items-center justify-center ${
                 isSelected
                   ? 'bg-blue-600 border-blue-300 text-white'
                   : 'bg-zinc-900 border-zinc-600 text-zinc-100'
@@ -890,6 +1023,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         activeColor={currentColor}
         movable={movable}
         projections={projections}
+        swapHighlight={swapHighlight}
       />
       <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
         {log.map((entry, i) => (

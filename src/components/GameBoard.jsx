@@ -34,6 +34,13 @@ const startTileColors = {
   Green: 'border-emerald-500 bg-emerald-500/15',
 }
 
+const startRingColors = {
+  Red: 'sm:ring-2 sm:ring-red-400',
+  Blue: 'sm:ring-2 sm:ring-sky-400',
+  Yellow: 'sm:ring-2 sm:ring-yellow-300',
+  Green: 'sm:ring-2 sm:ring-emerald-400',
+}
+
 // Text arrows for home-lane entry markers (point straight into the lane).
 // Use a single triangle glyph and rotate it per color so it respects CSS
 // color (no blue emoji arrows) and always points into the lane.
@@ -75,6 +82,13 @@ const homeColors = {
   Green: 'border-emerald-500 bg-emerald-500/10',
 }
 
+const homeRingColors = {
+  Red: 'sm:ring-2 sm:ring-red-400',
+  Blue: 'sm:ring-2 sm:ring-sky-400',
+  Yellow: 'sm:ring-2 sm:ring-yellow-300',
+  Green: 'sm:ring-2 sm:ring-emerald-400',
+}
+
 const finalHomeColors = {
   Red: 'border-red-400 bg-red-500/40',
   Blue: 'border-sky-400 bg-sky-500/40',
@@ -82,7 +96,7 @@ const finalHomeColors = {
   Green: 'border-emerald-400 bg-emerald-500/40',
 }
 
-export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable, projections }) {
+export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable, projections, swapHighlight }) {
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
     let base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border border-zinc-700 bg-zinc-900/80'
@@ -99,7 +113,8 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     for (const [color, entryIndex] of Object.entries(HOME_ENTRY_INDEX)) {
       if (entryIndex === index) {
         const hc = homeColors[color] || ''
-        base += ` ${hc} sm:ring-2 sm:ring-current`
+        const rc = homeRingColors[color] || 'sm:ring-2 sm:ring-zinc-200'
+        base += ` ${hc} ${rc}`
         homeEntryColor = color
         break
       }
@@ -110,7 +125,8 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     for (const [color, startIndex] of Object.entries(START_INDEX)) {
       if (startIndex === index) {
         const sc = startTileColors[color] || ''
-        base += ` ${sc} sm:ring-2 sm:ring-current`
+        const rc = startRingColors[color] || 'sm:ring-2 sm:ring-zinc-200'
+        base += ` ${sc} ${rc}`
         startColor = color
         break
       }
@@ -188,13 +204,17 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
 
       const projection = projList[idx]
 
+      const isMovableActive = movable?.color === color && movable?.indices?.includes(idx)
+      const isSwapActive =
+        swapHighlight && Array.isArray(swapHighlight[color]) && swapHighlight[color].includes(idx)
+
       return (
         <Pawn
           key={`${color}-${idx}`}
           color={color}
           x={x}
           y={y}
-          active={movable?.color === color && movable?.indices?.includes(idx)}
+          active={isMovableActive || isSwapActive}
           onClick={() => onPawnClick && onPawnClick(color, idx)}
         />
       )
@@ -287,7 +307,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">
-        Cards 0, 1, 2, or -6 can move a pawn out of Start.
+        Any numeric card less than or equal to 2 can move a pawn out of Start.
         <br />
         Landing on any slide space moves you to the end.
         <br />

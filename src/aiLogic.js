@@ -38,10 +38,10 @@ export function getMovableFor(card, color, pawnsByColor, simulateMove, getMoveFr
 
     const last = frames[frames.length - 1]
     const blocked =
-      (last.region === 'safety' || last.region === 'home') &&
+      last.region === 'safety' &&
       list.some((other, j) => {
         if (j === idx) return false
-        if (!(other && (other.region === 'safety' || other.region === 'home'))) return false
+        if (!(other && other.region === 'safety')) return false
         if (typeof other.safetyIndex !== 'number') return false
         return other.safetyIndex === last.safetyIndex
       })
@@ -234,13 +234,11 @@ export function chooseAiNumericPlay(params) {
     if (homePath && homePath.length) {
       const lastSafety = homePath.length - 1
       const beforeSafe =
-        pawn && (pawn.region === 'safety' || pawn.region === 'home')
+        pawn && pawn.region === 'safety'
           ? Math.min(typeof pawn.safetyIndex === 'number' ? pawn.safetyIndex : lastSafety, lastSafety)
           : -1
       let afterSafe = null
-      if (last.region === 'home') {
-        afterSafe = lastSafety
-      } else if (last.region === 'safety') {
+      if (last.region === 'safety') {
         afterSafe = Math.min(
           typeof last.safetyIndex === 'number' ? last.safetyIndex : 0,
           lastSafety
@@ -319,4 +317,55 @@ export function chooseAiSorryPlay(aiColor, hand, pawns) {
     targetColor: bestTarget.oppColor,
     targetIndex: bestTarget.idx,
   }
+}
+
+export function chooseAiSwapPlay(aiColor, hand, pawns) {
+  const swapIndex = hand.findIndex((c) => c === 'Swap')
+  if (swapIndex === -1) return null
+
+  const myList = pawns[aiColor] || []
+  const homeEntry = HOME_ENTRY_INDEX[aiColor]
+  if (typeof homeEntry !== 'number') return null
+
+  let best = null
+
+  myList.forEach((pawn, i) => {
+    if (!isOnTrack(pawn) || typeof pawn.index !== 'number') return
+    const beforeIndex = pawn.index
+    const beforeDist = (homeEntry - beforeIndex + 60) % 60
+
+    for (const oppColor of COLORS) {
+      if (oppColor === aiColor) continue
+      const oppList = pawns[oppColor] || []
+      const oppHome = HOME_ENTRY_INDEX[oppColor]
+
+      oppList.forEach((oppPawn, j) => {
+        if (!isOnTrack(oppPawn) || typeof oppPawn.index !== 'number') return
+
+        const afterDist = (homeEntry - oppPawn.index + 60) % 60
+        const aiGain = beforeDist - afterDist
+        if (aiGain <= 0) return
+
+        let score = aiGain * 3
+        if (typeof oppHome === 'number') {
+          const oppBefore = (oppHome - oppPawn.index + 60) % 60
+          const oppAfter = (oppHome - beforeIndex + 60) % 60
+          const oppGain = oppBefore - oppAfter
+          if (oppGain > 0) score -= oppGain * 2
+        }
+
+        if (!best || score > best.score) {
+          best = {
+            swapIndex,
+            srcIndex: i,
+            dstColor: oppColor,
+            dstIndex: j,
+            score,
+          }
+        }
+      })
+    }
+  })
+
+  return best
 }

@@ -46,44 +46,45 @@ export const BOARD_PATH = generateBoardPath()
 export const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
 
 // Deck composition (four of each card)
-// Includes special cards: '0' (start-only move), '-6' (backward card that can
-// also leave Start), and 'Oops' (reroll the shared hand).
-export const BASE_DECK = [0, 1, 2, 3, 4, 5, -6, 7, 8, 9, 10, 11, 12, 13, 'Sorry', 'Oops']
+// Includes special cards: '0' (start-only move), '-1' and '-6' (backward
+// cards that can also leave Start), 'Shuffle' (reroll the shared hand), and
+// 'Swap' (swap two pawns on the track).
+export const BASE_DECK = [0, 1, -1, 2, 3, 4, 5, -6, 7, 8, 9, 10, 11, 12, 13, 'Sorry', 'Shuffle', 'Swap']
 
 // Start zones: four positions near each corner for each color
 export const START_ZONES = {
   Red: [
-    { x: 20, y: 15 },
-    { x: 29, y: 15 },
-    { x: 20, y: 25 },
-    { x: 29, y: 25 },
+    { x: 26, y: 15 },
+    { x: 35, y: 15 },
+    { x: 26, y: 25 },
+    { x: 35, y: 25 },
   ],
   Blue: [
-    { x: 75, y: 20 },
-    { x: 85, y: 20 },
-    { x: 75, y: 29 },
-    { x: 85, y: 29 },
+    { x: 75, y: 26 },
+    { x: 85, y: 26 },
+    { x: 75, y: 35 },
+    { x: 85, y: 35 },
   ],
   Yellow: [
-    { x: 71, y: 75 },
-    { x: 80, y: 75 },
-    { x: 71, y: 85 },
-    { x: 80, y: 85 },
+    { x: 65, y: 75 },
+    { x: 74, y: 75 },
+    { x: 65, y: 85 },
+    { x: 74, y: 85 },
   ],
   Green: [
-    { x: 15, y: 71 },
-    { x: 25, y: 71 },
-    { x: 15, y: 80 },
-    { x: 25, y: 80 },
+    { x: 15, y: 65 },
+    { x: 25, y: 65 },
+    { x: 15, y: 74 },
+    { x: 25, y: 74 },
   ],
 }
 
 // Entry indices on the main track when leaving Start / entering home lanes.
 export const START_INDEX = {
-  Red: 2,
-  Blue: 17,
-  Yellow: 32,
-  Green: 47,
+  Red: 3,
+  Blue: 18,
+  Yellow: 33,
+  Green: 48,
 }
 
 // Track index where each color enters its safety/home path. These are kept as
@@ -140,18 +141,18 @@ export const HOME_PATHS = {
 export const SLIDES = {
   Red: [
     { start: 5, end: 7 },
-    { start: 10, end: 12 },
+    { start: 11, end: 13 },
   ],
   Blue: [
     { start: 20, end: 22 },
-    { start: 25, end: 27 },
+    { start: 26, end: 28 },
   ],
   Yellow: [
     { start: 35, end: 37 },
-    { start: 40, end: 42 },
+    { start: 41, end: 43 },
   ],
   Green: [
     { start: 50, end: 52 },
-    { start: 55, end: 57 },
+    { start: 56, end: 58 },
   ],
 }
