@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { auth, db, hasFirebase } from '../firebase'
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
-import { COLORS } from '../constants'
+import { COLORS, BASE_DECK } from '../constants'
 
 function pad4(n) {
   return String(n).padStart(4, '0')
@@ -10,6 +10,17 @@ function pad4(n) {
 
 function randomCode() {
   return pad4(Math.floor(Math.random() * 10000))
+}
+
+function buildInitialDeck() {
+  const deck = []
+  for (let i = 0; i < 4; i++) deck.push(...BASE_DECK)
+  const a = [...deck]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
 }
 
 export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
@@ -122,7 +133,25 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
       }
     })
 
-    await updateDoc(gameRef, { status: 'started', seats: seats }) // Assign seats to players and fill remaining seats with AI
+    // Build a shared initial game state so all clients start from the same
+    // pawns, deck, and hand.
+    const initialPawns = {}
+    for (const color of COLORS) {
+      initialPawns[color] = Array.from({ length: 4 }, () => ({ region: 'start' }))
+    }
+    const fullDeck = buildInitialDeck()
+    const hand = fullDeck.slice(0, 3)
+    const deck = fullDeck.slice(3)
+
+    const state = {
+      pawns: initialPawns,
+      deck,
+      hand,
+      turnIndex: 0,
+      winner: null,
+    }
+
+    await updateDoc(gameRef, { status: 'started', seats, state })
     // Notify the parent App so it can switch to the online GameScreen
     // for this room code.
     if (onOnlineGameStart) onOnlineGameStart(game.code)

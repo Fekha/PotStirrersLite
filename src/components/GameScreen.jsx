@@ -424,6 +424,15 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         setLocalColor(null)
       }
       setOnlineAiColors(seats.filter((s) => s && s.isAI).map((s) => s.color))
+
+      const sharedState = data.state || null
+      if (sharedState) {
+        if (sharedState.pawns) setPawns(sharedState.pawns)
+        if (Array.isArray(sharedState.deck)) setDeck(sharedState.deck)
+        if (Array.isArray(sharedState.hand)) setHand(sharedState.hand)
+        if (typeof sharedState.turnIndex === 'number') setTurnIndex(sharedState.turnIndex)
+        setWinner(sharedState.winner || null)
+      }
     })
     return () => {
       unsub()
@@ -433,7 +442,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   }, [isOnline, gameCode])
 
   useEffect(() => {
-    // Deal an initial shared hand of 3 cards, drawn from the deck.
+    // Local games deal their own initial hand. Online games read state from
+    // Firestore instead.
+    if (isOnline) return
     setDeck((prev) => {
       let deck = prev.length ? prev : buildDeck()
       const newHand = []
@@ -446,7 +457,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       setHand(newHand)
       return deck
     })
-  }, [])
+  }, [isOnline])
 
   const effectiveAiColors = isOnline ? onlineAiColors : aiColors
 
