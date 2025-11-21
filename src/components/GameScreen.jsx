@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
 import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
+import { auth, db, hasFirebase } from '../firebase'
+import { doc, onSnapshot } from 'firebase/firestore'
 
 function buildDeck() {
   const deck = []
@@ -351,7 +353,7 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
   return state
 }
 
-export default function GameScreen({ aiColors = [] } = {}) {
+export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [deck, setDeck] = useState(() => buildDeck())
   const [currentCard, setCurrentCard] = useState(null)
   const [turnIndex, setTurnIndex] = useState(0)
@@ -362,6 +364,14 @@ export default function GameScreen({ aiColors = [] } = {}) {
   const [log, setLog] = useState([])
   const [hand, setHand] = useState([])
   const [selectedIndex, setSelectedIndex] = useState(null)
+
+  // Online multiplayer awareness: when a gameCode is provided and Firebase is
+  // configured, we subscribe to the game document to discover seat assignments
+  // and derive the local player's color and AI-controlled colors.
+  const [localColor, setLocalColor] = useState(null)
+  const [onlineAiColors, setOnlineAiColors] = useState([])
+
+  const isOnline = !!gameCode && hasFirebase && db && auth
 
   const currentColor = COLORS[turnIndex]
 
@@ -397,6 +407,31 @@ export default function GameScreen({ aiColors = [] } = {}) {
     return { [color]: arr }
   }, [currentCard, movable, pawns, isAnimating, winner])
 
+  // Subscribe to game seats in online mode so we know which color this client
+  // controls and which colors are AI-controlled.
+  useEffect(() => {
+    if (!isOnline) return
+    const gameRef = doc(db, 'games', gameCode)
+    const unsub = onSnapshot(gameRef, (snap) => {
+      if (!snap.exists()) return
+      const data = snap.data()
+      const seats = data.seats || []
+      const me = auth.currentUser
+      if (me) {
+        const mySeat = seats.find((s) => s && s.uid === me.uid)
+        setLocalColor(mySeat ? mySeat.color : null)
+      } else {
+        setLocalColor(null)
+      }
+      setOnlineAiColors(seats.filter((s) => s && s.isAI).map((s) => s.color))
+    })
+    return () => {
+      unsub()
+      setLocalColor(null)
+      setOnlineAiColors([])
+    }
+  }, [isOnline, gameCode])
+
   useEffect(() => {
     // Deal an initial shared hand of 3 cards, drawn from the deck.
     setDeck((prev) => {
@@ -413,12 +448,14 @@ export default function GameScreen({ aiColors = [] } = {}) {
     })
   }, [])
 
+  const effectiveAiColors = isOnline ? onlineAiColors : aiColors
+
   // --- Simple AI opponents ---
   useEffect(() => {
     if (winner || isAnimating) return
 
     const aiColor = currentColor
-    if (!aiColors || !aiColors.includes(aiColor)) return
+    if (!effectiveAiColors || !effectiveAiColors.includes(aiColor)) return
 
     // Need a hand to act on, and no card already selected this turn.
     if (!hand.length) return
@@ -569,7 +606,7 @@ export default function GameScreen({ aiColors = [] } = {}) {
     if (fallbackIndex !== -1) {
       handleCardSelect(fallbackIndex)
     }
-  }, [winner, isAnimating, currentColor, aiColors, hand, pawns, selectedIndex, currentCard])
+  }, [winner, isAnimating, currentColor, effectiveAiColors, hand, pawns, selectedIndex, currentCard])
 
   function pushLog(entry) {
     setLog((prev) => {
@@ -612,6 +649,10 @@ export default function GameScreen({ aiColors = [] } = {}) {
     if (selectedIndex !== null) return
     const card = hand[index]
     if (card == null) return
+
+    // In online games, only the client whose color matches the current turn
+    // may interact.
+    if (isOnline && localColor && currentColor !== localColor) return
 
     const color = currentColor
 
@@ -701,7 +742,7 @@ export default function GameScreen({ aiColors = [] } = {}) {
       const next = (i + 1) % COLORS.length
       const nextColor = COLORS[next]
       // Ding when it becomes a human player's turn.
-      if (!aiColors || !aiColors.includes(nextColor)) {
+      if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
         play('turn')
       }
       return next
@@ -835,6 +876,10 @@ export default function GameScreen({ aiColors = [] } = {}) {
 
   function handlePawnClick(color, idx) {
     if (!currentCard || winner || isAnimating) return
+
+    // In online games, only the client whose color matches the current turn
+    // may move pawns.
+    if (isOnline && localColor && currentColor !== localColor) return
 
     // Snapshot of current state to decide if this click is a legal move.
     const pawn = pawns[color]?.[idx]

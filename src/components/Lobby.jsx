@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { auth, db, hasFirebase } from '../firebase'
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
+import { COLORS } from '../constants'
 
 function pad4(n) {
   return String(n).padStart(4, '0')
@@ -94,7 +95,34 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
   async function startGame() {
     if (!hasFirebase || !game || !isHost || !gamesRef) return
     const gameRef = doc(gamesRef, game.code)
-    await updateDoc(gameRef, { status: 'started' })
+    const players = game.players || []
+    const hostUid = game.host
+    const hostPlayer = players.find((p) => p.uid === hostUid) || players[0]
+    const others = players.filter((p) => !hostPlayer || p.uid !== hostPlayer.uid)
+    const orderedPlayers = [hostPlayer, ...others.sort((a, b) => (a.uid || '').localeCompare(b.uid || ''))].filter(
+      Boolean
+    )
+
+    const seats = COLORS.map((color, index) => {
+      const player = orderedPlayers[index]
+      if (player) {
+        return {
+          color,
+          uid: player.uid,
+          name: player.name || null,
+          isAI: false,
+        }
+      }
+      // Fill remaining seats with AI players.
+      return {
+        color,
+        uid: null,
+        name: null,
+        isAI: true,
+      }
+    })
+
+    await updateDoc(gameRef, { status: 'started', seats: seats }) // Assign seats to players and fill remaining seats with AI
     // Notify the parent App so it can switch to the online GameScreen
     // for this room code.
     if (onOnlineGameStart) onOnlineGameStart(game.code)
