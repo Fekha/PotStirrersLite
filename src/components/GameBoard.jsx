@@ -88,12 +88,14 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     }
 
     // Highlight the entry square into each color's home lane, using the
-    // HOME_ENTRY_INDEX mapping from constants.
+    // HOME_ENTRY_INDEX mapping from constants. On very small screens the
+    // strong ring highlight is only applied from the sm breakpoint up to
+    // avoid visual overlap.
     let homeEntryColor = null
     for (const [color, entryIndex] of Object.entries(HOME_ENTRY_INDEX)) {
       if (entryIndex === index) {
         const hc = homeColors[color] || ''
-        base += ` ${hc} ring-2 ring-current`
+        base += ` ${hc} sm:ring-2 sm:ring-current`
         homeEntryColor = color
         break
       }
@@ -104,7 +106,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     for (const [color, startIndex] of Object.entries(START_INDEX)) {
       if (startIndex === index) {
         const sc = startTileColors[color] || ''
-        base += ` ${sc} ring-2 ring-current`
+        base += ` ${sc} sm:ring-2 sm:ring-current`
         startColor = color
         break
       }
@@ -127,7 +129,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {homeEntryColor && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span
-              className={`text-[0.55rem] sm:text-xs font-bold ${
+              className={`text-[0.9rem] sm:text-base font-bold ${
                 homeEntryTextColors[homeEntryColor] || 'text-zinc-200'
               }`}
             >
@@ -138,7 +140,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {startColor && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span
-              className={`text-[0.55rem] sm:text-xs font-bold ${
+              className={`text-[0.9rem] sm:text-base font-bold ${
                 startTextColors[startColor] || 'text-zinc-200'
               }`}
             >
@@ -195,6 +197,33 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     })
   })
 
+  const startBoxes = Object.entries(START_ZONES).flatMap(([color, spots]) => {
+    const list = spots || []
+    if (!list.length) return []
+
+    // Compute the center of this color's four start positions and draw a
+    // single larger box around them so the whole start area reads as one
+    // region instead of four separate tiles.
+    let sumX = 0
+    let sumY = 0
+    list.forEach((p) => {
+      sumX += p.x
+      sumY += p.y
+    })
+    const cx = sumX / list.length
+    const cy = sumY / list.length
+
+    const base = 'absolute w-18 h-18 sm:w-18 sm:h-18 rounded-2xl border-2 bg-zinc-900/40'
+    const colorClasses = startTileColors[color]
+    return [
+      <div
+        key={`${color}-startbox`}
+        className={`${base} ${colorClasses || ''}`}
+        style={{ left: `${cx}%`, top: `${cy}%`, transform: 'translate(-50%, -50%)' }}
+      />,
+    ]
+  })
+
   const projectionNodes = Object.entries(projections || {}).flatMap(([color, projList]) => {
     const homePath = HOME_PATHS[color] || []
     return (projList || []).map((target, idx) => {
@@ -247,13 +276,14 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
         {trackCells}
         {homes}
+        {startBoxes}
         {projectionNodes}
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">
         Cards 0, 1, 2, or -3 can move a pawn out of Start.
         <br />
-        Landing on any slide space moves you to the end and bumps others.
+        Landing on any slide space moves you to the end.
         <br />
         Colored inner lanes are safe zones – get all four of your pawns into your lane to win.
       </div>

@@ -15,7 +15,7 @@ export default function Pawn({ color, x, y, onClick, active }) {
         left: `${x}%`,
         top: `${y}%`,
         transform: 'translate(-50%, -50%)',
-        transition: 'left 240ms ease-out, top 240ms ease-out',
+        transition: 'left 320ms ease-out, top 320ms ease-out',
       }}
       onClick={onClick}
     />

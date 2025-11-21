@@ -6,14 +6,14 @@ function App() {
   const [view, setView] = useState('lobby')
   const [aiColors, setAiColors] = useState([])
   const [onlineGameCode, setOnlineGameCode] = useState(null)
+  const [lastOnlineGameCode, setLastOnlineGameCode] = useState(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
       const saved = window.localStorage.getItem('lastOnlineGameCode')
       if (saved) {
-        setOnlineGameCode(saved)
-        setView('board')
+        setLastOnlineGameCode(saved)
       }
     } catch {
       // ignore
@@ -22,12 +22,16 @@ function App() {
 
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-100 flex flex-col">
-      <header className="w-full flex justify-center py-2 text-xs text-zinc-500">
-        <div className="text-sm font-semibold tracking-wide">PotStirrers</div>
-      </header>
-      <main className="flex-1 flex items-center justify-center p-4">
+      <main className="flex-1 flex items-center justify-center p-3">
         {view === 'lobby' ? (
           <Lobby
+            lastOnlineGameCode={lastOnlineGameCode}
+            onRejoinLastGame={() => {
+              if (!lastOnlineGameCode) return
+              setOnlineGameCode(lastOnlineGameCode)
+              setAiColors([])
+              setView('board')
+            }}
             onStartPassPlay={(aiCount) => {
               // Map a requested number of AI players (0–4) to color names.
               // We keep Red as the default human; Blue/Yellow/Green become AI
@@ -54,6 +58,7 @@ function App() {
                   // ignore
                 }
               }
+              setLastOnlineGameCode(code)
               setView('board')
             }}
           />

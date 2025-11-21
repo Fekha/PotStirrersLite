@@ -685,6 +685,11 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   function play(type) {
     if (!soundOn) return
+
+    // In online games, suppress most sounds when this client is not the
+    // current player. The turn chime is handled separately in advanceTurn.
+    if (isOnline && localColor && currentColor !== localColor && type !== 'turn') return
+
     playBeep(type)
   }
 
@@ -820,7 +825,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       const nextColor = COLORS[next]
       // Ding when it becomes a human player's turn.
       if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
-        play('turn')
+        if (!isOnline || !localColor || nextColor === localColor) {
+          play('turn')
+        }
       }
       return next
     })

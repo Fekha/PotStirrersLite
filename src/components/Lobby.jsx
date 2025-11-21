@@ -23,7 +23,7 @@ function buildInitialDeck() {
   return a
 }
 
-export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
+export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGameCode, onRejoinLastGame }) {
   const [user, setUser] = useState(null)
   const [mode, setMode] = useState('home')
   const [code, setCode] = useState('')
@@ -216,6 +216,19 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart }) {
                 </button>
               </div>
             </div>
+            {lastOnlineGameCode && onRejoinLastGame && (
+              <div className="mt-2 rounded border border-blue-900/80 bg-blue-950/40 p-3 flex items-center justify-between text-xs">
+                <div className="flex flex-col">
+                  <span className="text-blue-300 font-semibold">Rejoin last online game</span>
+                  <span className="text-blue-200/80 text-sm tracking-widest tabular-nums">Code: {lastOnlineGameCode}</span>
+                </div>
+                <button
+                  type="button"
+                  className="ml-3 px-3 py-1 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-500"
+                  onClick={onRejoinLastGame}
+                >Rejoin</button>
+              </div>
+            )}
           </div>
         )}
 
