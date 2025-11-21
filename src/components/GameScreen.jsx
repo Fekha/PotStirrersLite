@@ -314,6 +314,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   // Mode and state changes within a single turn don't cause the AI effect to
   // fire multiple times and advance the turn more than once.
   const lastAiTurnRef = useRef(null)
+  // Track what the AI has already done this turn. "none" = has not acted,
+  // "shuffle" = re-rolled hand and should now choose a real move,
+  // "resolved" = has already made a move/discard that advanced the turn.
+  const lastAiActionRef = useRef('none')
 
   const isOnline = !!gameCode && hasFirebase && db && auth
 
@@ -459,12 +463,16 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const aiColor = currentColor
     if (!effectiveAiColors || !effectiveAiColors.includes(aiColor)) return
 
-    // Ensure the AI only makes one decision per turn index. Without this,
-    // React Strict Mode and intra-turn state changes (hand/pawns updates)
-    // can cause the effect to re-run for the same color and call
-    // advanceTurn() multiple times, effectively skipping players.
-    if (lastAiTurnRef.current === turnIndex) return
-    lastAiTurnRef.current = turnIndex
+    // Per-turn gating: when we first see a new turnIndex, clear any previous
+    // AI action stage. For the same turnIndex, allow one resolved action
+    // (move/discard) but permit a single pre-action Shuffle that just
+    // rerolls the hand and then re-enters this effect.
+    if (lastAiTurnRef.current !== turnIndex) {
+      lastAiTurnRef.current = turnIndex
+      lastAiActionRef.current = 'none'
+    } else {
+      if (lastAiActionRef.current === 'resolved') return
+    }
 
     // Need a hand to act on, and no card already selected this turn.
     if (!hand.length) return
@@ -479,6 +487,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       // the follow-up log inside playSorryMove is missed or overlooked.
       pushLog(`${aiColor} (AI) plays Sorry`)
       playSorryMove(aiColor, sorryPlay.targetColor, sorryPlay.targetIndex, sorryPlay.sorryIndex)
+      lastAiActionRef.current = 'resolved'
       return
     }
 
@@ -507,6 +516,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       drawIntoHandSlot(swapPlay.swapIndex)
       advanceTurn()
       if (isOnline) setPendingSync(true)
+      lastAiActionRef.current = 'resolved'
       return
     }
 
@@ -525,13 +535,18 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       pushLog(`${aiColor} (AI) plays ${best.card}`)
       play('draw')
       playNumericOnPawn(best.card, aiColor, best.pawnIndex, best.index)
+      lastAiActionRef.current = 'resolved'
       return
     }
 
     // 3) No numeric or Sorry moves: try 'Shuffle' to reroll the hand.
     const shuffleIndex = hand.findIndex((c) => c === 'Shuffle')
-    if (shuffleIndex !== -1) {
+    if (shuffleIndex !== -1 && lastAiActionRef.current === 'none') {
       handleCardSelect(shuffleIndex)
+      // Stay on the same turnIndex but mark that we've already shuffled so
+      // the next AI pass can choose a real card or discard without shuffling
+      // again.
+      lastAiActionRef.current = 'shuffle'
       return
     }
 
@@ -539,6 +554,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const fallbackIndex = hand.findIndex((c) => typeof c === 'number' || c === 'Sorry' || c === 'Shuffle')
     if (fallbackIndex !== -1) {
       handleCardSelect(fallbackIndex)
+      lastAiActionRef.current = 'resolved'
     }
   }, [winner, isAnimating, currentColor, effectiveAiColors, hand, pawns, selectedIndex, currentCard, turnIndex])
 
@@ -705,20 +721,21 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   function advanceTurn() {
     setCurrentCard(null)
     setSelectedIndex(null)
-    setTurnIndex((i) => {
-      const next = (i + 1) % COLORS.length
-      const nextColor = COLORS[next]
-      // Log explicit turn handoff so the log always shows which color is
-      // actually up next, even when bonus turns cause chaining.
-      pushLog(`Turn passes to ${nextColor}`)
-      // Ding when it becomes a human player's turn.
-      if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
-        if (!isOnline || !localColor || nextColor === localColor) {
-          play('turn')
-        }
+
+    const next = (turnIndex + 1) % COLORS.length
+    const nextColor = COLORS[next]
+
+    // Log explicit turn handoff so the log always shows which color is
+    // actually up next.
+    pushLog(`Turn passes to ${nextColor}`)
+    // Ding when it becomes a human player's turn.
+    if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
+      if (!isOnline || !localColor || nextColor === localColor) {
+        play('turn')
       }
-      return next
-    })
+    }
+
+    setTurnIndex(next)
   }
 
   function resetGame() {
@@ -803,33 +820,28 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     function applyFrame(stepIndex) {
       if (stepIndex >= frames.length) {
-        // After the last step, apply bumps/slides and winner detection once,
-
+        // After the last step, apply bumps/slides and winner detection once.
         setPawns((prev) => {
           const finalPawn = frames[frames.length - 1]
-
-
           const next = {
             ...prev,
             [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...finalPawn } : { ...p })),
           }
 
-           if (isOnTrack(next[color][pawnIndex])) {
+          const moved = next[color][pawnIndex]
+          if (isOnTrack(moved)) {
             const bumped = applyBumpsAndSlides(next, color, pawnIndex)
             const w = getWinner(bumped)
             if (w) setWinnerAndLog(w)
-
             return bumped
-
           }
 
           const w = getWinner(next)
           if (w) setWinnerAndLog(w)
-
           return next
         })
 
-       setIsAnimating(false)
+        setIsAnimating(false)
         play('move')
         if (typeof slotIndex === 'number') {
           drawIntoHandSlot(slotIndex)
@@ -839,8 +851,8 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         advanceTurn()
         if (isOnline) setPendingSync(true)
         return
-      
       }
+
       const frame = frames[stepIndex]
       setPawns((prev) => ({
         ...prev,
@@ -862,11 +874,12 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   }
 
   function playSorryMove(attackerColor, defenderColor, defenderIndex, slotIndex) {
- const myList = pawns[attackerColor]
-    if (!myList) return
-    const startIdx = myList.findIndex(isInStart)
-    if (startIdx === -1) return
-setPawns((prev) => {
+    setPawns((prev) => {
+      const myList = prev[attackerColor]
+      if (!myList) return prev
+      const startIdx = myList.findIndex(isInStart)
+      if (startIdx === -1) return prev
+
       const next = {
         ...prev,
         [defenderColor]: prev[defenderColor].map((p) => ({ ...p })),
