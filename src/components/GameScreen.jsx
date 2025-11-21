@@ -64,9 +64,10 @@ function playBeep(type) {
   else if (type === 'win') {
     freq = 700
     duration = 0.25
-  } else if (type === 'turn') {
-    freq = 580
-    duration = 0.18
+  } else if (type === 'turn' || type === 'onlineTurn') {
+    // Unified turn chime for both local and online games.
+    freq = 760
+    duration = 0.22
   }
 
   const now = ctx.currentTime
@@ -569,6 +570,14 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   function play(type) {
     if (!soundOn) return
 
+    // The dedicated online-turn chime should always play when invoked,
+    // regardless of the currentColor snapshot, since advanceTurn computes
+    // the upcoming player before updating turnIndex.
+    if (type === 'onlineTurn') {
+      playBeep(type)
+      return
+    }
+
     // In online games, suppress most sounds when this client is not the
     // current player. The turn chime is handled separately in advanceTurn.
     if (isOnline && localColor && currentColor !== localColor && type !== 'turn') return
@@ -731,7 +740,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // Ding when it becomes a human player's turn.
     if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
       if (!isOnline || !localColor || nextColor === localColor) {
-        play('turn')
+        // In online games with a known local color, use a distinct chime
+        // when it becomes this client's turn.
+        if (isOnline && localColor && nextColor === localColor) {
+          play('onlineTurn')
+        } else {
+          play('turn')
+        }
       }
     }
 
