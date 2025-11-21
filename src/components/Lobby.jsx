@@ -202,7 +202,7 @@ export default function Lobby({ onStartPassPlay, onOnlineGameStart, lastOnlineGa
       <div className="w-full max-w-md">
         {mode === 'home' && (
           <div className="space-y-4">
-            <h1 className="text-3xl font-bold text-center">PotStirrers</h1>
+            <h1 className="text-3xl font-bold text-center">NOT Sorry</h1>
             <div className="grid grid-cols-2 gap-3">
               <button className="py-3 rounded bg-blue-600 text-white" onClick={createGame}>Create Game</button>
               <button className="py-3 rounded bg-zinc-800 text-white" onClick={() => setMode('join')}>Join Game</button>
