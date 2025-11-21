@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
 import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
+import {
+  isOnTrack,
+  isInStart,
+  getMovableFor as aiGetMovableFor,
+  hasSorryMove,
+  getTrackSlideInfo,
+  computeThreatAgainst,
+  chooseAiNumericPlay,
+  chooseAiSorryPlay,
+} from '../aiLogic'
 import { auth, db, hasFirebase } from '../firebase'
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
 
@@ -80,61 +90,11 @@ function initialPawns() {
   return result
 }
 
-function isOnTrack(pawn) {
-  return pawn?.region === 'track' && typeof pawn.index === 'number'
-}
-
-function isInStart(pawn) {
-  return pawn?.region === 'start'
-}
-
+// Adapter so the rest of GameScreen can call getMovableFor with the simpler
+// signature while the underlying logic lives in aiLogic and expects
+// simulateMove/getMoveFrames.
 function getMovableFor(card, color, pawnsByColor) {
-  if (card === null || card === undefined) return null
-  if (card === 'Sorry') return null
-
-  // '0' is a special start-only card: it can only be used to leave Start, and
-  // has no effect on other pawns. We treat only start pawns as movable.
-  if (card === 0) {
-    const list = pawnsByColor[color] || []
-    const indices = []
-    list.forEach((pawn, idx) => {
-      if (pawn && pawn.region === 'start') indices.push(idx)
-    })
-    if (!indices.length) return null
-    return { color, indices }
-  }
-
-  const list = pawnsByColor[color] || []
-  const numeric = Number(card)
-  if (!numeric) return null
-
-  const indices = []
-
-  list.forEach((pawn, idx) => {
-    const { canMove } = simulateMove(color, pawn, numeric)
-    if (!canMove) return
-
-    const frames = getMoveFrames(color, pawn, numeric)
-    if (!frames.length) return
-
-    // Home lane rule: you cannot *land* on a safety/home square that already
-    // has one of your pawns, but you may jump over your own pieces while
-    // moving through the lane.
-    const last = frames[frames.length - 1]
-    const blocked =
-      (last.region === 'safety' || last.region === 'home') &&
-      list.some((other, j) => {
-        if (j === idx) return false
-        if (!(other && (other.region === 'safety' || other.region === 'home'))) return false
-        if (typeof other.safetyIndex !== 'number') return false
-        return other.safetyIndex === last.safetyIndex
-      })
-
-    if (!blocked) indices.push(idx)
-  })
-
-  if (!indices.length) return null
-  return { color, indices }
+  return aiGetMovableFor(card, color, pawnsByColor, simulateMove, getMoveFrames)
 }
 
 // Build the sequence of pawn states for each individual step of a legal
@@ -203,20 +163,6 @@ function getMoveFrames(color, pawn, steps) {
   return frames
 }
 
-function hasSorryMove(color, pawnsByColor) {
-  const mine = pawnsByColor[color] || []
-  const hasStart = mine.some(isInStart)
-  if (!hasStart) return false
-
-  // Need at least one opponent pawn on the track
-  for (const c of COLORS) {
-    if (c === color) continue
-    const list = pawnsByColor[c] || []
-    if (list.some(isOnTrack)) return true
-  }
-  return false
-}
-
 // Simulate moving a pawn forward a given number of steps, including
 // entering its safety/home path. Does not apply bumps or slides.
 function simulateMove(color, pawn, steps) {
@@ -225,10 +171,11 @@ function simulateMove(color, pawn, steps) {
   // Already home: cannot move.
   if (pawn.region === 'home') return { canMove: false, nextPawn: pawn }
 
-  // Start region: 0, 1, 2, or -3 can leave. Pawns leave start onto the track at
+  // Start region: any numeric card with value <= 2 can leave (including
+  // backward cards like -6). Pawns leave start onto the track at
   // START_INDEX[color], which you can tweak in constants.js.
   if (pawn.region === 'start') {
-    if (!(steps === 1 || steps === 2 || steps === -3)) return { canMove: false, nextPawn: pawn }
+    if (!(typeof steps === 'number' && steps <= 2)) return { canMove: false, nextPawn: pawn }
     return {
       canMove: true,
       nextPawn: { region: 'track', index: START_INDEX[color] },
@@ -244,6 +191,8 @@ function simulateMove(color, pawn, steps) {
 
   if (steps < 0) {
     const count = Math.abs(steps)
+    // Negative moves are only allowed on the main track; you cannot move
+    // backward inside the safety/home lanes.
     if (region !== 'track') {
       return { canMove: false, nextPawn: pawn }
     }
@@ -529,132 +478,26 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (selectedIndex !== null || currentCard !== null) return
 
     const list = pawns[aiColor] || []
-    const entryIndex = START_INDEX[aiColor]
-
-    // 1) Highest priority: use a Sorry card if possible.
-    const sorryIndex = hand.findIndex((c) => c === 'Sorry')
-    if (sorryIndex !== -1) {
-      const myList = pawns[aiColor] || []
-      const hasStart = myList.some(isInStart)
-      if (hasStart) {
-        // Find the first opponent pawn on the track to target.
-        for (const oppColor of COLORS) {
-          if (oppColor === aiColor) continue
-          const oppList = pawns[oppColor] || []
-          const targetIdx = oppList.findIndex(isOnTrack)
-          if (targetIdx !== -1) {
-            setCurrentCard('Sorry')
-            setSelectedIndex(sorryIndex)
-            playSorryMove(aiColor, oppColor, targetIdx, sorryIndex)
-            return
-          }
-        }
-      }
+    const sorryPlay = chooseAiSorryPlay(aiColor, hand, pawns)
+    if (sorryPlay) {
+      setCurrentCard('Sorry')
+      setSelectedIndex(sorryPlay.sorryIndex)
+      playSorryMove(aiColor, sorryPlay.targetColor, sorryPlay.targetIndex, sorryPlay.sorryIndex)
+      return
     }
 
-    // 2) Next, consider numeric cards (0,1,2,3,4,5,7,8,10,11,12).
-    let best = null
-    hand.forEach((card, index) => {
-      if (typeof card !== 'number') return
-
-      const moveInfo = getMovableFor(card, aiColor, pawns)
-      if (!moveInfo) return
-
-      const indices = moveInfo.indices || []
-      if (!indices.length) return
-
-      // Prefer moves that take a pawn out of Start.
-      let pawnIndex = null
-      for (const pi of indices) {
-        const pawn = list[pi]
-        if (pawn && pawn.region === 'start') {
-          pawnIndex = pi
-          break
-        }
-      }
-      if (pawnIndex === null) pawnIndex = indices[0]
-
-      const pawn = list[pawnIndex]
-      if (!pawn) return
-
-      const isZeroCard = card === 0
-      const numeric = isZeroCard ? 1 : Number(card)
-      const frames = getMoveFrames(aiColor, pawn, numeric)
-      if (!frames.length) return
-      const last = frames[frames.length - 1]
-
-      // Detect landing on one of our own pawns (self-bump), either from
-      // Start or from the board. We treat this as lowest priority.
-      let landsOnOwn = false
-      let landsOnEnemy = false
-      if (last.region === 'track' && typeof last.index === 'number') {
-        landsOnOwn = list.some((other, j) => {
-          if (j === pawnIndex) return false
-          return isOnTrack(other) && other.index === last.index
-        })
-        if (!landsOnOwn) {
-          for (const oppColor of COLORS) {
-            if (oppColor === aiColor) continue
-            const oppList = pawns[oppColor] || []
-            if (
-              oppList.some(
-                (other) =>
-                  other &&
-                  isOnTrack(other) &&
-                  typeof other.index === 'number' &&
-                  other.index === last.index
-              )
-            ) {
-              landsOnEnemy = true
-              break
-            }
-          }
-        }
-      }
-
-      let score = 0
-
-      if (numeric > 0) {
-        score += numeric
-      } else if (numeric < 0) {
-        score += Math.abs(numeric) * 0.5
-      }
-
-      if (last.region === 'track' && typeof last.index === 'number' && isOnTrack(pawn)) {
-        const beforeIndex = pawn.index
-        if (typeof beforeIndex === 'number') {
-          const homeEntry = HOME_ENTRY_INDEX[aiColor]
-          const beforeDist = (homeEntry - beforeIndex + 60) % 60
-          const afterDist = (homeEntry - last.index + 60) % 60
-          const gain = beforeDist - afterDist
-          if (gain !== 0) {
-            score += gain * 2
-          }
-        }
-      }
-
-      if (pawn.region === 'start' && !landsOnOwn && last.region === 'track' && last.index === entryIndex) {
-        // Strong bonus for leaving Start onto a free entry square.
-        score += 100
-      }
-
-      if (landsOnOwn) {
-        // Very heavy penalty for landing on our own pawn so this is chosen
-        // only if there are absolutely no better options.
-        score -= 1000
-      }
-
-      if (landsOnEnemy) {
-        score += 120
-      }
-
-      if (!best || score > best.score) {
-        best = { card, index, pawnIndex, score }
-      }
+    const best = chooseAiNumericPlay({
+      aiColor,
+      hand,
+      pawns,
+      effectiveAiColors,
+      selectedIndex,
+      currentCard,
+      simulateMove,
+      getMoveFrames,
     })
 
     if (best) {
-      // Play the chosen numeric card immediately on the selected pawn.
       pushLog(`${aiColor} (AI) plays ${best.card}`)
       play('draw')
       playNumericOnPawn(best.card, aiColor, best.pawnIndex, best.index)
@@ -719,7 +562,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   function handleCardSelect(index) {
     if (winner || isAnimating) return
-    if (selectedIndex !== null) return
     const card = hand[index]
     if (card == null) return
 
@@ -790,31 +632,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       return
     }
 
-    const indices = moveInfo.indices || []
+    // There is at least one legal move for this card. We now simply select the
+    // card (for projections) and wait for the player to click a pawn to commit
+    // the move, instead of auto-playing when there is only one option.
 
-    // Auto-exit from Start: for 0 if any pawn is in start; for 1, 2, or -3 if the
-    // player has no pawns out on the board yet.
-    const list = pawns[color] || []
-    const hasStart = list.some((p) => p && p.region === 'start')
-    const hasOut = list.some((p) => p && (p.region === 'track' || p.region === 'safety'))
-    const isOneTwoOrNegThree = card === 1 || card === 2 || card === -3
-    const shouldAuto = (card === 0 && hasStart) || (isOneTwoOrNegThree && hasStart && !hasOut)
-
-    pushLog(`${color} selected ${card}`)
+    // No log here: players can switch cards to preview moves. We'll only log
+    // the final card actually used when the move or discard happens.
     play('draw')
-
-    if (shouldAuto) {
-      const startIdx = list.findIndex((p) => p && p.region === 'start')
-      if (startIdx !== -1) {
-        // Play the numeric move immediately from this hand slot.
-        playNumericOnPawn(card, color, startIdx, index)
-      }
-    } else if (indices.length === 1) {
-      // If there is exactly one legal pawn for this card, auto-play that move
-      // instead of waiting for the player to click the only option.
-      const onlyIdx = indices[0]
-      playNumericOnPawn(card, color, onlyIdx, index)
-    }
   }
 
   function advanceTurn() {
@@ -874,7 +698,11 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     setIsAnimating(true)
 
-    const stepMs = 220
+    // Shorter per-step duration so long moves feel smoother and less stuttery.
+    const stepMs = 140
+    // In online games, we only sync some intermediate frames to reduce
+    // network jitter; the final state always syncs in the completion branch.
+    const syncEvery = 3
 
     function applyFrame(stepIndex) {
       if (stepIndex >= frames.length) {
@@ -915,6 +743,18 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         ...prev,
         [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...frame } : { ...p })),
       }))
+
+      // In online games, push only a subset of intermediate frames so remote
+      // players see movement progressing, but avoid syncing every single step
+      // to reduce choppiness and network load. Always sync the first frame,
+      // and then every `syncEvery` frames on longer moves. The last frame is
+      // guaranteed to sync from the completion branch above.
+      if (
+        isOnline &&
+        (stepIndex === 0 || (frames.length > 4 && stepIndex % syncEvery === 0))
+      ) {
+        setPendingSync(true)
+      }
 
       setTimeout(() => applyFrame(stepIndex + 1), stepMs)
     }
@@ -961,7 +801,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   }
 
   function handlePawnClick(color, idx) {
-    if (!currentCard || winner || isAnimating) return
+    // 0 is a valid card value, so we must explicitly check for null/undefined
+    // rather than using a generic falsy check.
+    if (currentCard === null || currentCard === undefined || winner || isAnimating) return
 
     // In online games, only the client whose color matches the current turn
     // may move pawns.
@@ -985,6 +827,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (color !== currentColor) return
     // Use the locked-in hand slot (selectedIndex) so the card gets consumed
     // and replaced after the move resolves.
+    if (selectedIndex !== null) {
+      pushLog(`${color} plays ${currentCard}`)
+    }
     playNumericOnPawn(currentCard, color, idx, selectedIndex)
   }
 
@@ -1021,7 +866,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       <div className="flex justify-center gap-3 mt-2">
         {hand.map((card, index) => {
           const isSelected = selectedIndex === index
-          const disabled = winner || isAnimating || selectedIndex !== null
+          const disabled = winner || isAnimating
           return (
             <button
               key={index}

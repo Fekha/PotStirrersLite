@@ -35,11 +35,14 @@ const startTileColors = {
 }
 
 // Text arrows for home-lane entry markers (point straight into the lane).
-const homeEntryArrowChars = {
-  Red: '↓',    // from top edge into center
-  Blue: '←',   // from right edge into center
-  Yellow: '↑', // from bottom edge into center
-  Green: '→',  // from left edge into center
+// Use a single triangle glyph and rotate it per color so it respects CSS
+// color (no blue emoji arrows) and always points into the lane.
+const HOME_ENTRY_ARROW_CHAR = '\u25B2' // ▲ up-pointing triangle
+const homeEntryOrientation = {
+  Red: 'rotate-180',   // from top edge, pointing down
+  Blue: '-rotate-90',  // from right edge, pointing left
+  Yellow: '',          // from bottom edge, pointing up
+  Green: 'rotate-90',  // from left edge, pointing right
 }
 
 const homeEntryTextColors = {
@@ -50,11 +53,12 @@ const homeEntryTextColors = {
 }
 
 // Text arrows for leaving Start onto the main track (opposite of home-entry arrows).
-const startArrowChars = {
-  Red: '↑',    // from top edge, away from center
-  Blue: '→',   // from right edge, away from center
-  Yellow: '↓', // from bottom edge, away from center
-  Green: '←',  // from left edge, away from center
+const START_ARROW_CHAR = '\u25B2' // ▲ up-pointing triangle
+const startOrientation = {
+  Red: '',           // from top edge, pointing up (away from center)
+  Blue: 'rotate-90', // from right edge, pointing right
+  Yellow: 'rotate-180', // from bottom edge, pointing down
+  Green: '-rotate-90',  // from left edge, pointing left
 }
 
 const startTextColors = {
@@ -129,22 +133,22 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {homeEntryColor && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span
-              className={`text-[0.9rem] sm:text-base font-bold ${
-                homeEntryTextColors[homeEntryColor] || 'text-zinc-200'
-              }`}
+              className={`text-[0.9rem] sm:text-base font-bold transform ${
+                homeEntryOrientation[homeEntryColor] || ''
+              } ${homeEntryTextColors[homeEntryColor] || 'text-zinc-200'}`}
             >
-              {homeEntryArrowChars[homeEntryColor] || '↓'}
+              {HOME_ENTRY_ARROW_CHAR}
             </span>
           </div>
         )}
         {startColor && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span
-              className={`text-[0.9rem] sm:text-base font-bold ${
-                startTextColors[startColor] || 'text-zinc-200'
-              }`}
+              className={`text-[0.9rem] sm:text-base font-bold transform ${
+                startOrientation[startColor] || ''
+              } ${startTextColors[startColor] || 'text-zinc-200'}`}
             >
-              {startArrowChars[startColor] || '↑'}
+              {START_ARROW_CHAR}
             </span>
           </div>
         )}
@@ -213,7 +217,9 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     const cx = sumX / list.length
     const cy = sumY / list.length
 
-    const base = 'absolute w-18 h-18 sm:w-18 sm:h-18 rounded-2xl border-2 bg-zinc-900/40'
+    // Slightly smaller on tiny screens so they don't dominate the board,
+    // but keep the larger size from sm and up.
+    const base = 'absolute w-14 h-14 sm:w-18 sm:h-18 rounded-2xl border-2 bg-zinc-900/40'
     const colorClasses = startTileColors[color]
     return [
       <div
@@ -281,7 +287,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         {pawnNodes}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4">
-        Cards 0, 1, 2, or -3 can move a pawn out of Start.
+        Cards 0, 1, 2, or -6 can move a pawn out of Start.
         <br />
         Landing on any slide space moves you to the end.
         <br />
