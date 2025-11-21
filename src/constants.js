@@ -87,7 +87,7 @@ export const START_INDEX = {
   Green: 48,
 }
 
-// Track index where each color enters its safety/home path. These are kept as
+// Track index where each color enters its inner home path. These are kept as
 // simple constants so you can easily tweak them without touching logic.
 // With the current geometry, these correspond to the squares visually aligned
 // with the start of each color's home lane.
@@ -98,7 +98,7 @@ export const HOME_ENTRY_INDEX = {
   Green: 45,
 }
 
-// Safety/Home paths: 5-step columns/rows that lead from an entry on the main track into the center
+// Home paths: 5-step columns/rows that lead from an entry on the main track into the center
 // These are simplified straight paths aimed at the board center; you can adjust later to match art.
 export const HOME_PATHS = {
   Red: [

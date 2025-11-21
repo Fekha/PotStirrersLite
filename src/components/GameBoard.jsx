@@ -311,7 +311,9 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
         <br />
         Landing on any slide space moves you to the end.
         <br />
-        Colored inner lanes are safe zones – get all four of your pawns into your lane to win.
+        Landing on an opponent bumps that pawn back to Start.
+        <br />
+        Colored inner lanes are your home lanes – get all four of your pawns into your lane to win.
       </div>
     </div>
   )
