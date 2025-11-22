@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GameBoard from './GameBoard.jsx'
-import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX } from '../constants'
+import { SLIDES, HOME_PATHS, BOARD_PATH, START_INDEX, COLORS, BASE_DECK, HOME_ENTRY_INDEX, TRACK_LENGTH } from '../constants'
 import {
   isOnTrack,
   isInStart,
@@ -169,10 +169,10 @@ function getMoveFrames(color, pawn, steps) {
           index = undefined
           safetyIndex = 0
         } else {
-          index = ((index ?? 0) + 1) % 60
+          index = ((index ?? 0) + 1) % TRACK_LENGTH
         }
       } else {
-        index = ((index ?? 0) + 60 - 1) % 60
+        index = ((index ?? 0) + TRACK_LENGTH - 1) % TRACK_LENGTH
       }
     } else if (region === 'safety') {
       if (dir > 0) {
@@ -226,7 +226,7 @@ function simulateMove(color, pawn, steps) {
     }
 
     for (let i = 0; i < count; i++) {
-      index = ((index ?? 0) + 60 - 1) % 60
+      index = ((index ?? 0) + TRACK_LENGTH - 1) % TRACK_LENGTH
     }
 
     return { canMove: true, nextPawn: { region: 'track', index } }
@@ -242,7 +242,7 @@ function simulateMove(color, pawn, steps) {
         safetyIndex = 0
         continue
       }
-      index = ((index ?? 0) + 1) % 60
+      index = ((index ?? 0) + 1) % TRACK_LENGTH
     } else if (region === 'safety') {
       if (safetyIndex >= lastSafety) {
         // Would overshoot home; illegal move.
@@ -1158,7 +1158,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         })}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4 pb-1">
-        Any numeric card that has a * after it(Any card less than 3) can move a pawn out of Start.
+        Any card that has a * after it(Any card less than 3) can move a pawn out of Start.
         <br />
         Landing on any slide space moves you to the end.
         <br />

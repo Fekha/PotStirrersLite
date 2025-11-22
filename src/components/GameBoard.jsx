@@ -119,12 +119,12 @@ export default function GameBoard({
   const clockwise = turnDirection >= 0
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
-    // Slightly smaller than before so adjacent squares have a bit of space
-    // between their borders instead of overlapping.
-    let base = 'absolute w-4 h-4 sm:w-5 sm:h-5 rounded-md border border-zinc-700 bg-zinc-900/80'
+    // Slightly smaller so cells no longer clip the inner border, but gaps are
+    // still tight on the 40-space loop.
+    let base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border border-zinc-700 bg-zinc-900/80'
 
     if (slide) {
-      base = 'absolute w-4 h-4 sm:w-5 sm:h-5 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
+      base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
     }
 
     // Highlight the entry square into each color's home lane, using the
@@ -308,7 +308,7 @@ export default function GameBoard({
 
   const homes = Object.entries(HOME_PATHS).flatMap(([color, path]) => {
     return path.map((p, i) => {
-      const base = 'absolute w-3 h-3 sm:w-4 sm:h-4 rounded-md border bg-zinc-900/80'
+      const base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border bg-zinc-900/80'
       const colorClasses = homeColors[color]
       return (
         <div
@@ -341,7 +341,7 @@ export default function GameBoard({
             </span>
           ) : null}
           <span className="text-sm sm:text-base text-zinc-300">
-            Current player:{' '}
+            Current Turn:{' '}
             <span
               className={`font-semibold ${
                 COLOR_TEXT[winner || activeColor] || 'text-zinc-200'

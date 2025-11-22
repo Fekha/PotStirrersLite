@@ -1,4 +1,4 @@
-import { COLORS, HOME_ENTRY_INDEX, START_INDEX, HOME_PATHS, SLIDES } from './constants'
+import { COLORS, HOME_ENTRY_INDEX, START_INDEX, HOME_PATHS, SLIDES, TRACK_LENGTH } from './constants'
 
 // Lightweight copies of helpers the AI relies on. These are intentionally
 // pure and do not touch React state.
@@ -217,8 +217,8 @@ export function chooseAiNumericPlay(params) {
       const beforeIndex = pawn.index
       if (typeof beforeIndex === 'number') {
         const homeEntry = HOME_ENTRY_INDEX[aiColor]
-        const beforeDist = (homeEntry - beforeIndex + 60) % 60
-        const afterDist = (homeEntry - finalTrackIndex + 60) % 60
+        const beforeDist = (homeEntry - beforeIndex + TRACK_LENGTH) % TRACK_LENGTH
+        const afterDist = (homeEntry - finalTrackIndex + TRACK_LENGTH) % TRACK_LENGTH
         const gain = beforeDist - afterDist
         if (gain !== 0) {
           score += gain * 2
@@ -303,7 +303,7 @@ export function chooseAiSorryPlay(aiColor, hand, pawns) {
     oppList.forEach((p, idx) => {
       if (!isOnTrack(p)) return
       if (typeof p.index !== 'number') return
-      const dist = (homeEntry - p.index + 60) % 60
+      const dist = (homeEntry - p.index + TRACK_LENGTH) % TRACK_LENGTH
       if (!bestTarget || dist < bestTarget.dist) {
         bestTarget = { oppColor, idx, dist }
       }
@@ -332,7 +332,7 @@ export function chooseAiSwapPlay(aiColor, hand, pawns) {
   myList.forEach((pawn, i) => {
     if (!isOnTrack(pawn) || typeof pawn.index !== 'number') return
     const beforeIndex = pawn.index
-    const beforeDist = (homeEntry - beforeIndex + 60) % 60
+    const beforeDist = (homeEntry - beforeIndex + TRACK_LENGTH) % TRACK_LENGTH
 
     for (const oppColor of COLORS) {
       if (oppColor === aiColor) continue
@@ -342,14 +342,14 @@ export function chooseAiSwapPlay(aiColor, hand, pawns) {
       oppList.forEach((oppPawn, j) => {
         if (!isOnTrack(oppPawn) || typeof oppPawn.index !== 'number') return
 
-        const afterDist = (homeEntry - oppPawn.index + 60) % 60
+        const afterDist = (homeEntry - oppPawn.index + TRACK_LENGTH) % TRACK_LENGTH
         const aiGain = beforeDist - afterDist
         if (aiGain <= 0) return
 
         let score = aiGain * 3
         if (typeof oppHome === 'number') {
-          const oppBefore = (oppHome - oppPawn.index + 60) % 60
-          const oppAfter = (oppHome - beforeIndex + 60) % 60
+          const oppBefore = (oppHome - oppPawn.index + TRACK_LENGTH) % TRACK_LENGTH
+          const oppAfter = (oppHome - beforeIndex + TRACK_LENGTH) % TRACK_LENGTH
           const oppGain = oppBefore - oppAfter
           if (oppGain > 0) score -= oppGain * 2
         }
