@@ -326,13 +326,13 @@ export default function GameBoard({
         <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
 
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none space-y-1">
-          <span className="text-[11px] sm:text-xs text-zinc-300">
+          <span className="text-sm sm:text-base text-zinc-300">
             Turn Direction:{' '}
             <span className="font-semibold">{clockwise ? '↻' : '↺'}</span>
           </span>
           {isOnline && localColor ? (
             <span
-              className={`text-[11px] sm:text-xs ${
+              className={`text-sm sm:text-base ${
                 COLOR_TEXT[localColor] || 'text-zinc-200'
               }`}
             >
@@ -340,7 +340,7 @@ export default function GameBoard({
               <span className="font-semibold">{localColor}</span>
             </span>
           ) : null}
-          <span className="text-[11px] sm:text-xs text-zinc-300">
+          <span className="text-sm sm:text-base text-zinc-300">
             Current player:{' '}
             <span
               className={`font-semibold ${

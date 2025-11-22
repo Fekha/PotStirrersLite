@@ -92,46 +92,38 @@ export const START_INDEX = {
 // With the current geometry, these correspond to the squares visually aligned
 // with the start of each color's home lane.
 export const HOME_ENTRY_INDEX = {
-  Red: 0,
-  Blue: 15,
-  Yellow: 30,
-  Green: 45,
+  Red: 1,
+  Blue: 16,
+  Yellow: 31,
+  Green: 46,
 }
 
 // Home paths: 5-step columns/rows that lead from an entry on the main track into the center
 // These are simplified straight paths aimed at the board center; you can adjust later to match art.
 export const HOME_PATHS = {
   Red: [
-    { x: 13, y: 14 },
-    { x: 13, y: 21 },
-    { x: 13, y: 28 },
-    { x: 13, y: 35 },
-    { x: 13, y: 42 },
-    { x: 13, y: 49 },
+    { x: 19, y: 14 },
+    { x: 19, y: 21 },
+    { x: 19, y: 28 },
+    { x: 19, y: 35 },
   ],
   Blue: [
-    { x: 86, y: 13 },
-    { x: 79, y: 13 },
-    { x: 72, y: 13 },
-    { x: 65, y: 13 },
-    { x: 58, y: 13 },
-    { x: 51, y: 13 },
+    { x: 86, y: 19 },
+    { x: 79, y: 19 },
+    { x: 72, y: 19 },
+    { x: 65, y: 19 },
   ],
   Yellow: [
-    { x: 87, y: 86 },
-    { x: 87, y: 79 },
-    { x: 87, y: 72 },
-    { x: 87, y: 65 },
-    { x: 87, y: 58 },
-    { x: 87, y: 51 },
+    { x: 82, y: 86 },
+    { x: 82, y: 79 },
+    { x: 82, y: 72 },
+    { x: 82, y: 65 },
   ],
   Green: [
-    { x: 14, y: 87 },
-    { x: 21, y: 87 },
-    { x: 28, y: 87 },
-    { x: 35, y: 87 },
-    { x: 42, y: 87 },
-    { x: 49, y: 87 },
+    { x: 14, y: 82 },
+    { x: 21, y: 82 },
+    { x: 28, y: 82 },
+    { x: 35, y: 82 },
   ],
 }
 

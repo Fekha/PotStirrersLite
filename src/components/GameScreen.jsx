@@ -1104,7 +1104,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           </button>
         </div>
       </div>
-      <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
+      <div className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
         {log.map((entry, i) => (
           <div key={i} className="text-left text-zinc-300">
             {entry}
