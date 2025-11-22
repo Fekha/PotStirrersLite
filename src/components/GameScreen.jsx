@@ -416,17 +416,16 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     return getMovableFor(currentCard, currentColor, pawns)
   }, [currentCard, currentColor, pawns, isAnimating, winner])
 
-  // For the current player and board, determine which cards in hand can
-  // actually move a pawn this turn. This is stricter than "clickable": we
-  // ignore Shuffle here, since it does not move pawns, and only mark cards
-  // that would result in a legal movement (numeric, Sorry, or Swap).
+  // For the current player and board, determine which cards in hand are
+  // meaningfully playable this turn. This includes any card that either moves
+  // a pawn (numeric, Sorry, Swap) or can reroll the hand (Shuffle).
   const playableByIndex = useMemo(() => {
     if (isAnimating || winner) return hand.map(() => false)
     const color = currentColor
 
     return hand.map((card) => {
       if (card == null) return false
-      if (card === 'Shuffle') return false
+      if (card === 'Shuffle') return true
       if (card === 'Sorry') {
         return hasSorryMove(color, pawns)
       }
@@ -1293,10 +1292,10 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
           </button>
           <button
             type="button"
-            onClick={() => setShowExitConfirm(true)}
-            className="text-xs px-2 py-1 rounded border border-red-700 text-red-200 hover:bg-red-900/50"
+            onClick={() => setSoundOn((v) => !v)}
+            className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
           >
-            Exit to Home
+            Sound: {soundOn ? 'On' : 'Off'}
           </button>
         </div>
         <div className="flex items-center justify-end gap-2">
@@ -1309,10 +1308,10 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
           </button>
           <button
             type="button"
-            onClick={() => setSoundOn((v) => !v)}
-            className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+            onClick={() => setShowExitConfirm(true)}
+            className="text-xs px-2 py-1 rounded border border-red-700 text-red-200 hover:bg-red-900/50"
           >
-            Sound: {soundOn ? 'On' : 'Off'}
+            Exit to Home
           </button>
         </div>
       </div>
