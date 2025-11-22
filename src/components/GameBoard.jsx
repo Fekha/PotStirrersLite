@@ -12,6 +12,13 @@ function getSlideInfo(index) {
   return null
 }
 
+const COLOR_TEXT = {
+  Red: 'text-red-300',
+  Blue: 'text-sky-300',
+  Yellow: 'text-yellow-300',
+  Green: 'text-emerald-300',
+}
+
 const slideColors = {
   Red: 'border-zinc-400 bg-zinc-800/80',
   Blue: 'border-zinc-400 bg-zinc-800/80',
@@ -96,13 +103,28 @@ const finalHomeColors = {
   Green: 'border-emerald-400 bg-emerald-500/40',
 }
 
-export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, movable, projections, swapHighlight }) {
+export default function GameBoard({
+  pawnsByColor,
+  onPawnClick,
+  activeColor,
+  movable,
+  projections,
+  swapHighlight,
+  sorryHighlight,
+  turnDirection = 1,
+  localColor,
+  isOnline,
+  winner,
+}) {
+  const clockwise = turnDirection >= 0
   const trackCells = BOARD_PATH.map((pos, index) => {
     const slide = getSlideInfo(index)
-    let base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border border-zinc-700 bg-zinc-900/80'
+    // Slightly smaller than before so adjacent squares have a bit of space
+    // between their borders instead of overlapping.
+    let base = 'absolute w-4 h-4 sm:w-5 sm:h-5 rounded-md border border-zinc-700 bg-zinc-900/80'
 
     if (slide) {
-      base = 'absolute w-5 h-5 sm:w-6 sm:h-6 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
+      base = 'absolute w-4 h-4 sm:w-5 sm:h-5 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
     }
 
     // Highlight the entry square into each color's home lane, using the
@@ -207,6 +229,8 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
       const isMovableActive = movable?.color === color && movable?.indices?.includes(idx)
       const isSwapActive =
         swapHighlight && Array.isArray(swapHighlight[color]) && swapHighlight[color].includes(idx)
+      const isSorryActive =
+        sorryHighlight && Array.isArray(sorryHighlight[color]) && sorryHighlight[color].includes(idx)
 
       return (
         <Pawn
@@ -214,7 +238,7 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
           color={color}
           x={x}
           y={y}
-          active={isMovableActive || isSwapActive}
+          active={isMovableActive || isSwapActive || isSorryActive}
           onClick={() => onPawnClick && onPawnClick(color, idx)}
         />
       )
@@ -300,20 +324,39 @@ export default function GameBoard({ pawnsByColor, onPawnClick, activeColor, mova
     <div className="w-full flex flex-col items-center gap-4">
       <div className="aspect-square w-full max-w-md bg-zinc-900 rounded-3xl border border-zinc-700 relative overflow-hidden touch-none select-none">
         <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
+
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none space-y-1">
+          <span className="text-[11px] sm:text-xs text-zinc-300">
+            Turn Direction:{' '}
+            <span className="font-semibold">{clockwise ? '↻' : '↺'}</span>
+          </span>
+          {isOnline && localColor ? (
+            <span
+              className={`text-[11px] sm:text-xs ${
+                COLOR_TEXT[localColor] || 'text-zinc-200'
+              }`}
+            >
+              Your color:{' '}
+              <span className="font-semibold">{localColor}</span>
+            </span>
+          ) : null}
+          <span className="text-[11px] sm:text-xs text-zinc-300">
+            Current player:{' '}
+            <span
+              className={`font-semibold ${
+                COLOR_TEXT[winner || activeColor] || 'text-zinc-200'
+              }`}
+            >
+              {winner || activeColor}
+            </span>
+          </span>
+        </div>
+
         {trackCells}
         {homes}
         {startBoxes}
         {projectionNodes}
         {pawnNodes}
-      </div>
-      <div className="text-xs text-zinc-500 text-center px-4">
-        Any numeric card less than or equal to 2 can move a pawn out of Start.
-        <br />
-        Landing on any slide space moves you to the end.
-        <br />
-        Landing on an opponent bumps that pawn back to Start.
-        <br />
-        Colored inner lanes are your home lanes – get all four of your pawns into your lane to win.
       </div>
     </div>
   )

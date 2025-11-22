@@ -295,6 +295,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [deck, setDeck] = useState(() => buildDeck())
   const [currentCard, setCurrentCard] = useState(null)
   const [turnIndex, setTurnIndex] = useState(0)
+  const [turnDirection, setTurnDirection] = useState(1)
   const [pawns, setPawns] = useState(() => initialPawns())
   const [winner, setWinner] = useState(null)
   const [isAnimating, setIsAnimating] = useState(false)
@@ -642,9 +643,14 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const color = currentColor
 
     // 'Shuffle' discards the entire hand and deals three new cards for the same
-    // player, without ending the turn.
+    // player, without ending the turn. It also reverses the direction of play.
     if (card === 'Shuffle') {
       pushLog(`${color} played Shuffle (new hand)`)
+
+      const newDir = -turnDirection
+      setTurnDirection(newDir)
+      pushLog(newDir === 1 ? 'Play direction is now clockwise' : 'Play direction is now counter-clockwise')
+
       play('draw')
       setDeck((prev) => {
         let deck = prev.length ? prev : buildDeck()
@@ -731,7 +737,8 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setCurrentCard(null)
     setSelectedIndex(null)
 
-    const next = (turnIndex + 1) % COLORS.length
+    const step = turnDirection === -1 ? -1 : 1
+    const next = (turnIndex + step + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
 
     // Log explicit turn handoff so the log always shows which color is
@@ -769,6 +776,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setCurrentCard(null)
     setSelectedIndex(null)
     setTurnIndex(0)
+    setTurnDirection(1)
     setPawns(initialPawns())
     setWinner(null)
     setIsAnimating(false)
@@ -810,6 +818,30 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     return Object.keys(map).length ? map : null
   }, [currentCard, currentColor, pawns, swapSource])
+
+  const sorryHighlight = useMemo(() => {
+    if (currentCard !== 'Sorry') return null
+
+    const color = currentColor
+    const myList = pawns[color] || []
+    const hasStart = myList.some(isInStart)
+    if (!hasStart) return null
+
+    const map = {}
+    for (const c of COLORS) {
+      if (c === color) continue
+      const list = pawns[c] || []
+      const indices = []
+      list.forEach((pawn, idx) => {
+        if (pawn && isOnTrack(pawn)) indices.push(idx)
+      })
+      if (indices.length) {
+        map[c] = indices
+      }
+    }
+
+    return Object.keys(map).length ? map : null
+  }, [currentCard, currentColor, pawns])
 
   function playNumericOnPawn(cardValue, color, pawnIndex, slotIndex) {
     const isZeroCard = cardValue === 0
@@ -1022,24 +1054,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   return (
     <div className="w-full max-w-xl mx-auto space-y-3 relative">
-      <div className="flex items-center justify-between text-sm">
-        <div className="w-20" />
-        <div className="flex flex-col items-center flex-1">
-          <div className="text-[11px] text-zinc-400">
-            {isOnline && localColor ? (
-              <span>
-                Your color:{' '}
-                <span className={`font-semibold ${COLOR_TEXT[localColor] || 'text-zinc-200'}`}>{localColor}</span>
-              </span>
-            ) : null}
-          </div>
-          <div className="text-xs text-zinc-400">
-            Current player:{' '}
-            <span className={`font-semibold ${COLOR_TEXT[winner || currentColor] || 'text-zinc-200'}`}>
-              {winner || currentColor}
-            </span>
-          </div>
-        </div>
+      <div className="flex items-center justify-end text-sm">
         <div className="flex items-center justify-end w-20">
           <button
             type="button"
@@ -1050,7 +1065,27 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           </button>
         </div>
       </div>
-      <div className="flex justify-center gap-3 mt-2">
+      <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
+        {log.map((entry, i) => (
+          <div key={i} className="text-left text-zinc-300">
+            {entry}
+          </div>
+        ))}
+      </div>
+      <GameBoard
+        pawnsByColor={pawns}
+        onPawnClick={handlePawnClick}
+        activeColor={currentColor}
+        movable={movable}
+        projections={projections}
+        swapHighlight={swapHighlight}
+        sorryHighlight={sorryHighlight}
+        turnDirection={turnDirection}
+        localColor={localColor}
+        isOnline={isOnline}
+        winner={winner}
+      />
+      <div className="flex justify-center gap-4 mt-4">
         {hand.map((card, index) => {
           const isSelected = selectedIndex === index
           const disabled = winner || isAnimating
@@ -1060,7 +1095,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
               type="button"
               onClick={() => handleCardSelect(index)}
               disabled={disabled}
-              className={`w-12 h-18 px-1.5 py-1.5 rounded border text-xs font-semibold disabled:opacity-40 flex items-center justify-center ${
+              className={`w-24 h-36 px-3 py-3 rounded border text-lg font-semibold disabled:opacity-40 flex items-center justify-center ${
                 isSelected
                   ? 'bg-blue-600 border-blue-300 text-white'
                   : 'bg-zinc-900 border-zinc-600 text-zinc-100'
@@ -1071,20 +1106,12 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           )
         })}
       </div>
-      <GameBoard
-        pawnsByColor={pawns}
-        onPawnClick={handlePawnClick}
-        activeColor={currentColor}
-        movable={movable}
-        projections={projections}
-        swapHighlight={swapHighlight}
-      />
-      <div className="mt-2 text-xs bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
-        {log.map((entry, i) => (
-          <div key={i} className="text-left text-zinc-300">
-            {entry}
-          </div>
-        ))}
+      <div className="text-xs text-zinc-500 text-center px-4 pb-1">
+        Any numeric card less than 3 can move a pawn out of Start.
+        <br />
+        Landing on any slide space moves you to the end.
+        <br />
+        Colored inner lanes are your home lanes – get all four of your pawns into your lane to win.
       </div>
       {winner && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
