@@ -63,7 +63,16 @@ function App() {
             }}
           />
         ) : (
-          <GameScreen aiColors={aiColors} gameCode={onlineGameCode} />
+          <GameScreen
+            aiColors={aiColors}
+            gameCode={onlineGameCode}
+            onExit={() => {
+              // Return to the lobby and clear any in-progress board state.
+              setView('lobby')
+              setAiColors([])
+              setOnlineGameCode(null)
+            }}
+          />
         )}
       </main>
     </div>

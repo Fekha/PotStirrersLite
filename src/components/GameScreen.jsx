@@ -22,6 +22,37 @@ const COLOR_TEXT = {
   Green: 'text-emerald-300',
 }
 
+const COLOR_NAMES = Object.keys(COLOR_TEXT)
+
+function renderColoredLogText(text) {
+  if (!text) return null
+  const pattern = new RegExp(`\\b(${COLOR_NAMES.join('|')})\\b`, 'g')
+  const parts = []
+  let lastIndex = 0
+  let match
+  let key = 0
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    const colorName = match[1]
+    const colorClass = COLOR_TEXT[colorName] || 'text-zinc-200'
+    parts.push(
+      <span key={`c-${key++}`} className={`${colorClass} font-semibold`}>
+        {colorName}
+      </span>,
+    )
+    lastIndex = match.index + colorName.length
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts
+}
+
 function getCardInfo(card) {
   if (card === 'Shuffle') {
     return 'Discard the entire hand and draw three new cards and reverse the direction of play.'
@@ -283,8 +314,9 @@ function getWinner(pawns) {
 
 function applyBumpsAndSlides(state, color, pawnIndex) {
   const pawn = state[color][pawnIndex]
-  if (!pawn || !isOnTrack(pawn)) return state
+  if (!pawn || !isOnTrack(pawn)) return { state, bumps: [] }
   let pos = pawn.index
+  const bumps = []
 
   // Bump any pawn already on landing square
   for (const c of COLORS) {
@@ -294,6 +326,7 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
       if (isOnTrack(otherPawn) && otherPawn.index === pos) {
         otherPawn.region = 'start'
         delete otherPawn.index
+        bumps.push({ attacker: color, victim: c })
       }
     })
   }
@@ -315,21 +348,22 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
               if (isOnTrack(otherPawn) && otherPawn.index === i) {
                 otherPawn.region = 'start'
                 delete otherPawn.index
+                bumps.push({ attacker: color, victim: c })
               }
             })
           }
         }
         pawn.index = s.end
         pos = s.end
-        return state
+        return { state, bumps }
       }
     }
   }
 
-  return state
+  return { state, bumps }
 }
 
-export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
+export default function GameScreen({ aiColors = [], gameCode = null, onExit = null } = {}) {
   const [deck, setDeck] = useState(() => buildDeck())
   const [currentCard, setCurrentCard] = useState(null)
   const [turnIndex, setTurnIndex] = useState(0)
@@ -344,6 +378,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [infoCard, setInfoCard] = useState(null)
   const [discardPrompt, setDiscardPrompt] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
+  const [logCollapsed, setLogCollapsed] = useState(false)
+  const [scale, setScale] = useState(1)
   const logRef = useRef(null)
 
   // Online multiplayer awareness: when a gameCode is provided and Firebase is
@@ -362,9 +399,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   // "shuffle" = re-rolled hand and should now choose a real move,
   // "resolved" = has already made a move/discard that advanced the turn.
   const lastAiActionRef = useRef('none')
-  // Simple turn counter for logging: starts at 1 and increments every time
-  // advanceTurn hands play to the next color.
-  const turnNumberRef = useRef(1)
 
   const isOnline = !!gameCode && hasFirebase && db && auth
 
@@ -382,12 +416,68 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     return getMovableFor(currentCard, currentColor, pawns)
   }, [currentCard, currentColor, pawns, isAnimating, winner])
 
-  // Always keep the log scrolled to the newest entry at the bottom.
+  // For the current player and board, determine which cards in hand can
+  // actually move a pawn this turn. This is stricter than "clickable": we
+  // ignore Shuffle here, since it does not move pawns, and only mark cards
+  // that would result in a legal movement (numeric, Sorry, or Swap).
+  const playableByIndex = useMemo(() => {
+    if (isAnimating || winner) return hand.map(() => false)
+    const color = currentColor
+
+    return hand.map((card) => {
+      if (card == null) return false
+      if (card === 'Shuffle') return false
+      if (card === 'Sorry') {
+        return hasSorryMove(color, pawns)
+      }
+      if (card === 'Swap') {
+        return hasSwapMove(pawns, color)
+      }
+      if (typeof card === 'number') {
+        const info = getMovableFor(card, color, pawns)
+        return !!(info && info.indices && info.indices.length)
+      }
+      return false
+    })
+  }, [hand, pawns, currentColor, isAnimating, winner])
+
+  const hasAnyMoveCard = useMemo(() => playableByIndex.some(Boolean), [playableByIndex])
+
+  // Basic viewport-aware scaling so the full game area fits on smaller phones.
+  // We use a slightly smaller "design" width so the game appears larger on
+  // typical phone viewports, and we recompute when the log is collapsed so the
+  // main content can grow into the freed vertical space.
   useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    function updateScale() {
+      const vw = window.innerWidth || 0
+      const vh = window.innerHeight || 0
+      if (!vw || !vh) return
+
+      // Target a slightly smaller virtual board than typical phone viewports
+      // so we only scale down when absolutely necessary.
+      const baseWidth = 360
+      const baseHeightExpanded = 780
+      const baseHeightCollapsed = 680
+      const baseHeight = logCollapsed ? baseHeightCollapsed : baseHeightExpanded
+
+      const next = Math.min(vw / baseWidth, vh / baseHeight, 1)
+      setScale(next)
+    }
+
+    updateScale()
+    window.addEventListener('resize', updateScale)
+    return () => window.removeEventListener('resize', updateScale)
+  }, [logCollapsed])
+
+  // Always keep the log scrolled to the newest entry at the bottom when visible.
+  useEffect(() => {
+    if (logCollapsed) return
     const el = logRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [log])
+  }, [log, logCollapsed])
 
   // For the currently selected numeric card, pre-compute where each movable
   // pawn would land so the board can show a projection marker.
@@ -442,6 +532,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         if (Array.isArray(sharedState.deck)) setDeck(sharedState.deck)
         if (Array.isArray(sharedState.hand)) setHand(sharedState.hand)
         if (typeof sharedState.turnIndex === 'number') setTurnIndex(sharedState.turnIndex)
+        if (typeof sharedState.turnDirection === 'number') setTurnDirection(sharedState.turnDirection)
         setWinner(sharedState.winner || null)
         if (Array.isArray(sharedState.log)) setLog(sharedState.log)
       }
@@ -483,6 +574,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       deck,
       hand,
       turnIndex,
+      turnDirection,
       winner,
       log,
     }
@@ -627,12 +719,27 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   function pushLog(message, options = {}) {
     const { color } = options
-    const entry = {
-      text: message,
-      color: color || currentColor,
-      turn: turnNumberRef.current,
-    }
-    setLog((prev) => [...prev, entry])
+    const actualColor = color || currentColor
+    setLog((prev) => {
+      let nextTurn = 1
+      const last = prev[prev.length - 1]
+      if (last && typeof last === 'object' && typeof last.turn === 'number') {
+        // If the same color is still acting, keep the same turn number so that
+        // multi-step actions (e.g. Sorry + its resolution) share a Turn label.
+        if (last.color === actualColor) {
+          nextTurn = last.turn
+        } else {
+          nextTurn = last.turn + 1
+        }
+      }
+
+      const entry = {
+        text: message,
+        color: actualColor,
+        turn: nextTurn,
+      }
+      return [...prev, entry]
+    })
   }
 
   function play(type) {
@@ -667,13 +774,18 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         return prev
       }
 
+      let turn = 1
+      const last = prev[prev.length - 1]
+      if (last && typeof last === 'object' && typeof last.turn === 'number') {
+        turn = last.turn
+      }
+
       const winnerEntry = {
         text: `${color} wins!`,
         color,
-        turn: turnNumberRef.current,
+        turn,
       }
-      const next = [...prev, winnerEntry]
-      return next
+      return [...prev, winnerEntry]
     })
     play('win')
   }
@@ -715,6 +827,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const isAiColor = (isOnline ? onlineAiColors : aiColors).includes(color)
     const isLocalHumanColor = !isOnline || !localColor || color === localColor
     const shouldPromptDiscard = !skipPrompt && !isAiColor && isLocalHumanColor
+    const allowPromptDiscard = shouldPromptDiscard && hasAnyMoveCard
 
     // 'Shuffle' discards the entire hand and deals three new cards for the same
     // player, without ending the turn. It also reverses the direction of play.
@@ -753,7 +866,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       // even if a legal swap exists. Treat it as a discard so AI turns cannot
       // hang waiting for human pawn clicks.
       if (!canSwap || isAiAutoDiscard) {
-        if (!shouldPromptDiscard) {
+        if (!allowPromptDiscard) {
           pushLog(`${color} discarded Swap${!canSwap ? ' (no targets)' : ''}`)
           play('draw')
           setCurrentCard(null)
@@ -788,7 +901,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card === 'Sorry') {
       const canPlay = hasSorryMove(color, pawns)
       if (!canPlay) {
-        if (!shouldPromptDiscard) {
+        if (!allowPromptDiscard) {
           pushLog(`${color} discarded Sorry`)
           play('draw')
           setCurrentCard(null)
@@ -817,7 +930,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       // No legal moves for this card.
       setCurrentCard(null)
       setSelectedIndex(null)
-      if (!shouldPromptDiscard) {
+      if (!allowPromptDiscard) {
         pushLog(`${color} discarded ${card}`)
         play('draw')
         drawIntoHandSlot(index)
@@ -865,7 +978,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     }
 
     setTurnIndex(next)
-    turnNumberRef.current += 1
   }
 
   function resetGame() {
@@ -889,7 +1001,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setWinner(null)
     setIsAnimating(false)
     setLog([])
-    turnNumberRef.current = 1
   }
 
   const [swapSource, setSwapSource] = useState(null)
@@ -986,10 +1097,18 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
           const moved = next[color][pawnIndex]
           if (isOnTrack(moved)) {
-            const bumped = applyBumpsAndSlides(next, color, pawnIndex)
-            const w = getWinner(bumped)
+            const { state: bumpedState, bumps } = applyBumpsAndSlides(next, color, pawnIndex)
+            if (Array.isArray(bumps) && bumps.length) {
+              bumps.forEach(({ attacker, victim }) => {
+                if (attacker && victim && attacker !== victim) {
+                  pushLog(`${attacker} bumped ${victim}`, { color: attacker })
+                }
+              })
+            }
+
+            const w = getWinner(bumpedState)
             if (w) setWinnerAndLog(w)
-            return bumped
+            return bumpedState
           }
 
           const w = getWinner(next)
@@ -1158,16 +1277,36 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   }
 
   return (
-    <div className="w-full max-w-xl mx-auto space-y-3 relative">
+    <div className="w-full h-full flex justify-center items-start overflow-auto">
+      <div
+        className="w-full max-w-xl mx-auto space-y-3 relative"
+        style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
+      >
       <div className="flex items-center justify-between text-sm w-full max-w-md mx-auto px-1">
-        <button
-          type="button"
-          onClick={() => setShowHelp(true)}
-          className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
-        >
-          Help
-        </button>
-        <div className="flex items-center justify-end w-20">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHelp(true)}
+            className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+          >
+            Help
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowExitConfirm(true)}
+            className="text-xs px-2 py-1 rounded border border-red-700 text-red-200 hover:bg-red-900/50"
+          >
+            Exit to Home
+          </button>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setLogCollapsed((v) => !v)}
+            className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+          >
+            {logCollapsed ? 'Show log' : 'Hide log'}
+          </button>
           <button
             type="button"
             onClick={() => setSoundOn((v) => !v)}
@@ -1177,41 +1316,29 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           </button>
         </div>
       </div>
-      <div
-        ref={logRef}
-        className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 h-32 overflow-y-auto max-w-md mx-auto"
-      >
-        <div className="flex flex-col justify-end min-h-full space-y-0.5">
-          {log.map((entry, i) => {
-            if (entry == null) return null
+      {!logCollapsed && (
+        <div
+          ref={logRef}
+          className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 h-32 overflow-y-auto max-w-md mx-auto"
+        >
+          <div className="flex flex-col justify-end min-h-full space-y-0.5">
+            {log.map((entry, i) => {
+              if (entry == null) return null
 
-            const isObject = typeof entry === 'object'
-            const text = isObject ? entry.text : String(entry)
-            const turn = isObject ? entry.turn : null
-            const colorForLog = isObject ? entry.color : null
-            const colorClass =
-              colorForLog && COLOR_TEXT[colorForLog] ? COLOR_TEXT[colorForLog] : 'text-zinc-200'
+              const isObject = typeof entry === 'object'
+              const text = isObject ? entry.text : String(entry)
+              const turn = isObject ? entry.turn : null
 
-            let coloredMessage = text
-            if (colorForLog && text.startsWith(colorForLog)) {
-              const rest = text.slice(colorForLog.length)
-              coloredMessage = (
-                <>
-                  <span className={`${colorClass} font-semibold`}>{colorForLog}</span>
-                  {rest}
-                </>
+              return (
+                <div key={i} className="text-left text-zinc-300">
+                  {turn != null && <span className="font-semibold">{`Turn ${turn}: `}</span>}
+                  {renderColoredLogText(text)}
+                </div>
               )
-            }
-
-            return (
-              <div key={i} className="text-left text-zinc-300">
-                {turn != null && <span className="font-semibold">{`Turn ${turn}: `}</span>}
-                {coloredMessage}
-              </div>
-            )
-          })}
+            })}
+          </div>
         </div>
-      </div>
+      )}
       <GameBoard
         pawnsByColor={pawns}
         onPawnClick={handlePawnClick}
@@ -1228,7 +1355,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       <div className="flex justify-center gap-6 mt-4 w-full max-w-md mx-auto">
         {hand.map((card, index) => {
           const isSelected = selectedIndex === index
-          const disabled = !canHumanActThisTurn
+          const hasAnyMoveCard = playableByIndex.some(Boolean)
+          const disabled =
+            !canHumanActThisTurn || (canHumanActThisTurn && hasAnyMoveCard && !playableByIndex[index])
           return (
             <button
               key={index}
@@ -1355,14 +1484,48 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
             <div className="text-xs uppercase tracking-wide text-zinc-400">Game Over</div>
             <div className="text-lg font-semibold">{winner} wins!</div>
             <button
-              onClick={resetGame}
-              className="mt-2 inline-flex items-center justify-center px-4 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500"
+              onClick={() => {
+                if (onExit) onExit()
+                else resetGame()
+              }}
+              className="mt-2 inline-flex items-center justify-center px-4 py-1.5 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-500"
             >
-              Play again
+              Exit to Home
             </button>
           </div>
         </div>
       )}
+
+      {showExitConfirm && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl max-w-xs w-full text-center space-y-3">
+            <div className="text-xs uppercase tracking-wide text-zinc-400">Leave Game?</div>
+            <div className="text-sm text-zinc-200 whitespace-pre-line">
+              Are you sure you want to exit to the home screen?
+            </div>
+            <div className="flex justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExitConfirm(false)
+                  if (onExit) onExit()
+                }}
+                className="px-3 py-1.5 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-500"
+              >
+                Exit
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExitConfirm(false)}
+                className="px-3 py-1.5 rounded border border-zinc-600 text-zinc-200 text-xs font-medium hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
     </div>
   )
 }
