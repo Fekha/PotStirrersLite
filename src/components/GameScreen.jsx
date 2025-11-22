@@ -55,7 +55,7 @@ function renderColoredLogText(text) {
 
 function getCardInfo(card) {
   if (card === 'Shuffle') {
-    return 'Discard the entire hand and draw three new cards and reverse the direction of play.'
+    return 'Discard the entire hand and draw three new cards for the same player.'
   }
   if (card === 'Swap') {
     return 'Swap the positions of one of your pawns on the track with an opponent pawn on the track.'
@@ -81,6 +81,9 @@ function getCardInfo(card) {
   if (card === 5) {
     return '5⊘: Move a pawn forward 5 spaces, then skip the next player\'s turn (the turn order jumps over them).'
   }
+  if (card === 7) {
+    return '7↺: Move a pawn forward 7 spaces, then reverse the direction of play.'
+  }
   if (typeof card === 'number') {
     if (card > 0 && card < 3) {
       return `Move a pawn on the track forward ${card} spaces, or move a pawn from Start onto the track.`
@@ -100,6 +103,9 @@ function formatCardFace(card) {
   }
   if (card === 5) {
     return '5⊘'
+  }
+  if (card === 7) {
+    return '7↺'
   }
   if (typeof card === 'number' && card <= 2) {
     // Any numeric card less than or equal to 2 (including backward cards like
@@ -872,13 +878,9 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     const allowPromptDiscard = shouldPromptDiscard && hasAnyMoveCard
 
     // 'Shuffle' discards the entire hand and deals three new cards for the same
-    // player, without ending the turn. It also reverses the direction of play.
+    // player, without ending the turn.
     if (card === 'Shuffle') {
       pushLog(`${color} played Shuffle (new hand)`)
-
-      const newDir = -turnDirection
-      setTurnDirection(newDir)
-      pushLog(newDir === 1 ? 'Play direction is now clockwise' : 'Play direction is now counter-clockwise')
 
       play('draw')
       setDeck((prev) => {
@@ -999,14 +1001,19 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     play('draw')
   }
 
-  function advanceTurn(steps = 1) {
+  function advanceTurn(steps = 1, reverse = false) {
     setCurrentCard(null)
     setSelectedIndex(null)
 
-    const dirStep = turnDirection === -1 ? -1 : 1
-    const hop = dirStep * (steps || 1)
+    const baseDir = turnDirection === -1 ? -1 : 1
+    const effectiveDir = reverse ? -baseDir : baseDir
+    const hop = effectiveDir * (steps || 1)
     const next = (turnIndex + hop + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
+    if (reverse) {
+      setTurnDirection(effectiveDir)
+      pushLog(effectiveDir === 1 ? 'Play direction is now clockwise' : 'Play direction is now counter-clockwise')
+    }
     // When a new player's turn begins, clear any shields on their pawns so
     // protection only lasts until their next turn.
     setPawns((prev) => {
@@ -1318,9 +1325,11 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
         setSelectedIndex(null)
         setCurrentCard(null)
         // Card 5 is special: after a successful move, skip the next
-        // player in turn order (jump two seats instead of one).
+        // player in turn order (jump two seats instead of one). Card 7
+        // reverses the direction of play for subsequent turns.
         const turnSteps = cardValue === 5 ? 2 : 1
-        advanceTurn(turnSteps)
+        const reverseDir = cardValue === 7
+        advanceTurn(turnSteps, reverseDir)
         if (isOnline) setPendingSync(true)
         return
       }
@@ -1604,11 +1613,12 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
                 possible) moves that same pawn 3 more spaces from its new position. 4⚔︎ moves a
                 pawn 4 spaces and gives it temporary protection until your next turn; if an
                 opponent lands on or slides through that pawn, their pawn is bounced back to
-                Start instead. Any card that shows a ▸ can move a pawn out of Start. Sorry lets
-                you leave Start by bumping an opponent pawn from the track back to their Start.
-                Swap trades one of your track pawns with an opponent&apos;s. Shuffle discards your
-                whole hand, draws three new cards for the same player, and reverses the
-                direction of play.
+                Start instead. 5⊘ moves a pawn 5 spaces, then skips the next player&apos;s turn.
+                7↺ moves a pawn 7 spaces and reverses the direction of play. Any card that shows
+                a ▸ can move a pawn out of Start. Sorry lets you leave Start by bumping an
+                opponent pawn from the track back to their Start. Swap trades one of your track
+                pawns with an opponent&apos;s. Shuffle discards your whole hand and draws three new
+                cards for the same player.
               </p>
               <p>
                 Landing on a slide start moves you to the end of the slide, bumping any
