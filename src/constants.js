@@ -55,7 +55,7 @@ export const COLORS = ['Red', 'Blue', 'Yellow', 'Green']
 // Includes special cards: '0' (start-only move), '-1' and '-6' (backward
 // cards that can also leave Start), 'Shuffle' (reroll the shared hand), and
 // 'Swap' (swap two pawns on the track).
-export const BASE_DECK = [0, 1, -1, 2, 3, 4, 5, 6, -6, 7, 8, 9, 10, 'Sorry', 'Shuffle', 'Swap']
+export const BASE_DECK = [0, 1, -1, 2, 3, 4, 5]
 
 // Start zones: four positions near each corner for each color, arranged as
 // 2x2 blocks that sit just inside the corresponding start track square.

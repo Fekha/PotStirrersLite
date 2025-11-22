@@ -78,6 +78,9 @@ function getCardInfo(card) {
   if (card === 4) {
     return '4⚔︎: Move a pawn forward 4 spaces. That pawn becomes protected until your next turn; if an opponent tries to land on or slide through it, their pawn is bounced back to Start instead.'
   }
+  if (card === 5) {
+    return '5⊘: Move a pawn forward 5 spaces, then skip the next player\'s turn (the turn order jumps over them).'
+  }
   if (typeof card === 'number') {
     if (card > 0 && card < 3) {
       return `Move a pawn on the track forward ${card} spaces, or move a pawn from Start onto the track.`
@@ -95,10 +98,13 @@ function formatCardFace(card) {
   if (card === 4) {
     return '4⚔︎'
   }
+  if (card === 5) {
+    return '5⊘'
+  }
   if (typeof card === 'number' && card <= 2) {
     // Any numeric card less than or equal to 2 (including backward cards like
-    // -1 and -6) can be used to leave Start, so we mark it with a '*'.
-    return `${card}*`
+    // -1 and -6) can be used to leave Start, so we mark it with a right-pointing '▸'.
+    return `${card}▸`
   }
   return String(card)
 }
@@ -993,12 +999,13 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     play('draw')
   }
 
-  function advanceTurn() {
+  function advanceTurn(steps = 1) {
     setCurrentCard(null)
     setSelectedIndex(null)
 
-    const step = turnDirection === -1 ? -1 : 1
-    const next = (turnIndex + step + COLORS.length) % COLORS.length
+    const dirStep = turnDirection === -1 ? -1 : 1
+    const hop = dirStep * (steps || 1)
+    const next = (turnIndex + hop + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
     // When a new player's turn begins, clear any shields on their pawns so
     // protection only lasts until their next turn.
@@ -1310,7 +1317,10 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
         }
         setSelectedIndex(null)
         setCurrentCard(null)
-        advanceTurn()
+        // Card 5 is special: after a successful move, skip the next
+        // player in turn order (jump two seats instead of one).
+        const turnSteps = cardValue === 5 ? 2 : 1
+        advanceTurn(turnSteps)
         if (isOnline) setPendingSync(true)
         return
       }
@@ -1594,7 +1604,7 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
                 possible) moves that same pawn 3 more spaces from its new position. 4⚔︎ moves a
                 pawn 4 spaces and gives it temporary protection until your next turn; if an
                 opponent lands on or slides through that pawn, their pawn is bounced back to
-                Start instead. Any card that shows a * can move a pawn out of Start. Sorry lets
+                Start instead. Any card that shows a ▸ can move a pawn out of Start. Sorry lets
                 you leave Start by bumping an opponent pawn from the track back to their Start.
                 Swap trades one of your track pawns with an opponent&apos;s. Shuffle discards your
                 whole hand, draws three new cards for the same player, and reverses the
