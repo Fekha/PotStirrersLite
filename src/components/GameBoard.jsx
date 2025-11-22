@@ -332,7 +332,7 @@ export default function GameBoard({
                 COLOR_TEXT[localColor] || 'text-zinc-200'
               }`}
             >
-              Your color:{' '}
+              You are {' '}
               <span className="font-semibold">{localColor}</span>
             </span>
           ) : null}

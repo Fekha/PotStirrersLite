@@ -343,6 +343,8 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [infoCard, setInfoCard] = useState(null)
   const [discardPrompt, setDiscardPrompt] = useState(null)
+  const [showHelp, setShowHelp] = useState(false)
+  const logRef = useRef(null)
 
   // Online multiplayer awareness: when a gameCode is provided and Firebase is
   // configured, we subscribe to the game document to discover seat assignments
@@ -360,6 +362,9 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   // "shuffle" = re-rolled hand and should now choose a real move,
   // "resolved" = has already made a move/discard that advanced the turn.
   const lastAiActionRef = useRef('none')
+  // Simple turn counter for logging: starts at 1 and increments every time
+  // advanceTurn hands play to the next color.
+  const turnNumberRef = useRef(1)
 
   const isOnline = !!gameCode && hasFirebase && db && auth
 
@@ -376,6 +381,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (isAnimating || winner) return null
     return getMovableFor(currentCard, currentColor, pawns)
   }, [currentCard, currentColor, pawns, isAnimating, winner])
+
+  // Always keep the log scrolled to the newest entry at the bottom.
+  useEffect(() => {
+    const el = logRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [log])
 
   // For the currently selected numeric card, pre-compute where each movable
   // pawn would land so the board can show a projection marker.
@@ -613,7 +625,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     }
   }, [winner, isAnimating, currentColor, effectiveAiColors, hand, pawns, selectedIndex, currentCard, turnIndex])
 
-  function pushLog(entry) {
+  function pushLog(message, options = {}) {
+    const { color } = options
+    const entry = {
+      text: message,
+      color: color || currentColor,
+      turn: turnNumberRef.current,
+    }
     setLog((prev) => [...prev, entry])
   }
 
@@ -639,8 +657,22 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setWinner((prev) => prev || color)
     setLog((prev) => {
       // Avoid logging duplicate winner lines if this is triggered more than once.
-      if (prev.some((entry) => entry.endsWith('wins!'))) return prev
-      const next = [...prev, `${color} wins!`]
+      if (
+        prev.some((entry) => {
+          if (typeof entry === 'string') return entry.endsWith('wins!')
+          if (entry && typeof entry.text === 'string') return entry.text.endsWith('wins!')
+          return false
+        })
+      ) {
+        return prev
+      }
+
+      const winnerEntry = {
+        text: `${color} wins!`,
+        color,
+        turn: turnNumberRef.current,
+      }
+      const next = [...prev, winnerEntry]
       return next
     })
     play('win')
@@ -757,7 +789,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       const canPlay = hasSorryMove(color, pawns)
       if (!canPlay) {
         if (!shouldPromptDiscard) {
-          pushLog(`${color} discarded Sorry (no moves)`)
+          pushLog(`${color} discarded Sorry`)
           play('draw')
           setCurrentCard(null)
           setSelectedIndex(null)
@@ -770,7 +802,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
             card,
             handIndex: index,
             message: 'Sorry has no valid targets this turn.',
-            log: `${color} discarded Sorry (no moves)`,
+            log: `${color} discarded Sorry`,
           })
         }
         return
@@ -786,7 +818,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       setCurrentCard(null)
       setSelectedIndex(null)
       if (!shouldPromptDiscard) {
-        pushLog(`${color} discarded ${card} (no moves)`)
+        pushLog(`${color} discarded ${card}`)
         play('draw')
         drawIntoHandSlot(index)
         advanceTurn()
@@ -797,7 +829,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           card,
           handIndex: index,
           message: `No legal moves for ${card} this turn.`,
-          log: `${color} discarded ${card} (no moves)`,
+          log: `${color} discarded ${card}`,
         })
       }
       return
@@ -819,9 +851,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const step = turnDirection === -1 ? -1 : 1
     const next = (turnIndex + step + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
-    // Log explicit turn handoff so the log always shows which color is
-    // actually up next.
-    pushLog(`Turn passes to ${nextColor}`)
     // Ding when it becomes a human player's turn.
     if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
       if (!isOnline || !localColor || nextColor === localColor) {
@@ -836,6 +865,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     }
 
     setTurnIndex(next)
+    turnNumberRef.current += 1
   }
 
   function resetGame() {
@@ -859,6 +889,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     setWinner(null)
     setIsAnimating(false)
     setLog([])
+    turnNumberRef.current = 1
   }
 
   const [swapSource, setSwapSource] = useState(null)
@@ -1128,7 +1159,14 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   return (
     <div className="w-full max-w-xl mx-auto space-y-3 relative">
-      <div className="flex items-center justify-end text-sm">
+      <div className="flex items-center justify-between text-sm w-full max-w-md mx-auto px-1">
+        <button
+          type="button"
+          onClick={() => setShowHelp(true)}
+          className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+        >
+          Help
+        </button>
         <div className="flex items-center justify-end w-20">
           <button
             type="button"
@@ -1139,15 +1177,40 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           </button>
         </div>
       </div>
-      <div className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto max-w-md mx-auto">
-        {[...log]
-          .slice()
-          .reverse()
-          .map((entry, i) => (
-            <div key={i} className="text-left text-zinc-300">
-              {entry}
-            </div>
-          ))}
+      <div
+        ref={logRef}
+        className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 h-32 overflow-y-auto max-w-md mx-auto"
+      >
+        <div className="flex flex-col justify-end min-h-full space-y-0.5">
+          {log.map((entry, i) => {
+            if (entry == null) return null
+
+            const isObject = typeof entry === 'object'
+            const text = isObject ? entry.text : String(entry)
+            const turn = isObject ? entry.turn : null
+            const colorForLog = isObject ? entry.color : null
+            const colorClass =
+              colorForLog && COLOR_TEXT[colorForLog] ? COLOR_TEXT[colorForLog] : 'text-zinc-200'
+
+            let coloredMessage = text
+            if (colorForLog && text.startsWith(colorForLog)) {
+              const rest = text.slice(colorForLog.length)
+              coloredMessage = (
+                <>
+                  <span className={`${colorClass} font-semibold`}>{colorForLog}</span>
+                  {rest}
+                </>
+              )
+            }
+
+            return (
+              <div key={i} className="text-left text-zinc-300">
+                {turn != null && <span className="font-semibold">{`Turn ${turn}: `}</span>}
+                {coloredMessage}
+              </div>
+            )
+          })}
+        </div>
       </div>
       <GameBoard
         pawnsByColor={pawns}
@@ -1162,7 +1225,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         isOnline={isOnline}
         winner={winner}
       />
-      <div className="flex justify-center gap-4 mt-4">
+      <div className="flex justify-center gap-6 mt-4 w-full max-w-md mx-auto">
         {hand.map((card, index) => {
           const isSelected = selectedIndex === index
           const disabled = !canHumanActThisTurn
@@ -1172,7 +1235,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
               type="button"
               onClick={() => handleCardSelect(index)}
               disabled={disabled}
-              className={`relative w-24 h-36 px-3 py-3 rounded border text-lg font-semibold disabled:opacity-40 flex items-center justify-center ${
+              className={`relative w-28 h-40 px-3 py-3 rounded border text-lg font-semibold disabled:opacity-40 flex items-center justify-center ${
                 isSelected
                   ? 'bg-blue-600 border-blue-300 text-white'
                   : 'bg-zinc-900 border-zinc-600 text-zinc-100'
@@ -1195,13 +1258,45 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           )
         })}
       </div>
-      <div className="text-xs text-zinc-500 text-center px-4 pb-1">
-        Any card that has a * after it can move a pawn out of Start.
-        <br />
-        Landing on any slide space moves you to the end.
-        <br />
-        Get all four of your pawns into your colored inner lane to win.
-      </div>
+      {showHelp && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl text-left space-y-2 max-w-sm mx-4">
+            <div className="text-xs uppercase tracking-wide text-zinc-400 text-center">How to Play</div>
+            <div className="text-xs text-zinc-300 space-y-1">
+              <p>
+                Goal: move all four of your pawns from Start to your inner home lane before
+                any other color.
+              </p>
+              <p>
+                On your turn, choose one of your three cards. If it has a legal move, click a
+                pawn to apply it. If it has no legal moves this turn, you may discard it
+                instead and draw a replacement, ending your turn.
+              </p>
+              <p>
+                Numeric cards move one of your pawns by their value (0 can only leave Start).
+                Any card that shows a * can move a pawn out of Start.
+                Sorry lets you leave Start by bumping an opponent pawn from the track back to
+                their Start. Swap trades one of your track pawns with an opponent&apos;s. Shuffle
+                discards your whole hand, draws three new cards for the same player, and
+                reverses the direction of play.
+              </p>
+              <p>
+                Landing on a slide start moves you to the end of the slide, bumping any
+                opponent pawns along the way. Landing on an opponent pawn&apos;s space bumps that
+                pawn back to Start. Get all four of your pawns into your colored inner lane to
+                win.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowHelp(false)}
+              className="mt-1 inline-flex items-center justify-center px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-500"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {discardPrompt && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40">
           <div className="bg-zinc-900 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl max-w-xs w-full text-center space-y-3">
