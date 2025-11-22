@@ -342,6 +342,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [hand, setHand] = useState([])
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [infoCard, setInfoCard] = useState(null)
+  const [discardPrompt, setDiscardPrompt] = useState(null)
 
   // Online multiplayer awareness: when a gameCode is provided and Firebase is
   // configured, we subscribe to the game document to discover seat assignments
@@ -590,7 +591,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // 3) No numeric or Sorry moves: try 'Shuffle' to reroll the hand.
     const shuffleIndex = hand.findIndex((c) => c === 'Shuffle')
     if (shuffleIndex !== -1 && lastAiActionRef.current === 'none') {
-      handleCardSelect(shuffleIndex)
+      handleCardSelect(shuffleIndex, { skipPrompt: true })
       // Stay on the same turnIndex but mark that we've already shuffled so
       // the next AI pass can choose a real card or discard without shuffling
       // again.
@@ -601,17 +602,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // Otherwise, discard the first available non-special card using existing logic.
     const fallbackIndex = hand.findIndex((c) => typeof c === 'number' || c === 'Sorry' || c === 'Shuffle')
     if (fallbackIndex !== -1) {
-      handleCardSelect(fallbackIndex)
+      handleCardSelect(fallbackIndex, { skipPrompt: true })
       lastAiActionRef.current = 'resolved'
     }
   }, [winner, isAnimating, currentColor, effectiveAiColors, hand, pawns, selectedIndex, currentCard, turnIndex])
 
   function pushLog(entry) {
-    setLog((prev) => {
-      const next = [`${entry}`, ...prev]
-      return next
-    })
-    if (isOnline) setPendingSync(true)
+    setLog((prev) => [...prev, entry])
   }
 
   function play(type) {
@@ -670,7 +667,8 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     return false
   }
 
-  function handleCardSelect(index) {
+  function handleCardSelect(index, options = {}) {
+    const { skipPrompt = false } = options
     if (winner || isAnimating) return
     const card = hand[index]
     if (card == null) return
@@ -720,13 +718,23 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card === 'Swap') {
       const canSwap = hasSwapMove(pawns, color)
       if (!canSwap) {
-        pushLog(`${color} discarded Swap (no targets)`)
-        play('draw')
-        setCurrentCard(null)
-        setSelectedIndex(null)
-        drawIntoHandSlot(index)
-        advanceTurn()
-        if (isOnline) setPendingSync(true)
+        if (skipPrompt) {
+          pushLog(`${color} discarded Swap (no targets)`)
+          play('draw')
+          setCurrentCard(null)
+          setSelectedIndex(null)
+          drawIntoHandSlot(index)
+          advanceTurn()
+          if (isOnline) setPendingSync(true)
+        } else {
+          setDiscardPrompt({
+            color,
+            card,
+            handIndex: index,
+            message: 'Swap has no valid targets this turn.',
+            log: `${color} discarded Swap (no targets)`,
+          })
+        }
         return
       }
 
@@ -745,12 +753,23 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card === 'Sorry') {
       const canPlay = hasSorryMove(color, pawns)
       if (!canPlay) {
-        pushLog(`${color} discarded Sorry (no moves)`)        
-        play('draw')
-        setCurrentCard(null)
-        setSelectedIndex(null)
-        drawIntoHandSlot(index)
-        advanceTurn()
+        if (skipPrompt) {
+          pushLog(`${color} discarded Sorry (no moves)`)
+          play('draw')
+          setCurrentCard(null)
+          setSelectedIndex(null)
+          drawIntoHandSlot(index)
+          advanceTurn()
+          if (isOnline) setPendingSync(true)
+        } else {
+          setDiscardPrompt({
+            color,
+            card,
+            handIndex: index,
+            message: 'Sorry has no valid targets this turn.',
+            log: `${color} discarded Sorry (no moves)`,
+          })
+        }
         return
       }
       pushLog(`${color} selected Sorry`)
@@ -760,13 +779,24 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
     const moveInfo = getMovableFor(card, color, pawns)
     if (!moveInfo) {
-      pushLog(`${color} discarded ${card} (no moves)`)      
-      play('draw')
+      // No legal moves for this card.
       setCurrentCard(null)
       setSelectedIndex(null)
-      drawIntoHandSlot(index)
-      advanceTurn()
-      if (isOnline) setPendingSync(true)
+      if (skipPrompt) {
+        pushLog(`${color} discarded ${card} (no moves)`)
+        play('draw')
+        drawIntoHandSlot(index)
+        advanceTurn()
+        if (isOnline) setPendingSync(true)
+      } else {
+        setDiscardPrompt({
+          color,
+          card,
+          handIndex: index,
+          message: `No legal moves for ${card} this turn.`,
+          log: `${color} discarded ${card} (no moves)`,
+        })
+      }
       return
     }
 
@@ -1171,6 +1201,42 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         <br />
         Get all four of your pawns into your colored inner lane to win.
       </div>
+      {discardPrompt && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl max-w-xs w-full text-center space-y-3">
+            <div className="text-xs uppercase tracking-wide text-zinc-400">{discardPrompt.message}</div>
+            <div className="text-sm text-zinc-200 whitespace-pre-line">
+              Would you like to discard this card and end your turn?
+            </div>
+            <div className="flex justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const { handIndex, log: logMsg, color, card } = discardPrompt
+                  if (logMsg) pushLog(logMsg)
+                  play('draw')
+                  setCurrentCard(null)
+                  setSelectedIndex(null)
+                  drawIntoHandSlot(handIndex)
+                  advanceTurn()
+                  if (isOnline) setPendingSync(true)
+                  setDiscardPrompt(null)
+                }}
+                className="px-3 py-1.5 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-500"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiscardPrompt(null)}
+                className="px-3 py-1.5 rounded border border-zinc-600 text-zinc-200 text-xs font-medium hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {infoCard !== null && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl text-center space-y-2 max-w-xs">
