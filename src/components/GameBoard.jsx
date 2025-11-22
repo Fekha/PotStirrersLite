@@ -239,6 +239,7 @@ export default function GameBoard({
           x={x}
           y={y}
           active={isMovableActive || isSwapActive || isSorryActive}
+          shielded={!!pawn.shielded}
           onClick={() => onPawnClick && onPawnClick(color, idx)}
         />
       )

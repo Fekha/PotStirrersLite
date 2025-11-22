@@ -72,6 +72,12 @@ function getCardInfo(card) {
   if (card === -6) {
     return 'Move one of your pawns on the track backward 6 spaces, or move a pawn from Start onto the track.'
   }
+  if (card === 3) {
+    return '3+3: Move a pawn forward 3 spaces, fully resolving any bumps and slides, then if that pawn still has a legal move, move it 3 more spaces from its new position.'
+  }
+  if (card === 4) {
+    return '4⚔︎: Move a pawn forward 4 spaces. That pawn becomes protected until your next turn; if an opponent tries to land on or slide through it, their pawn is bounced back to Start instead.'
+  }
   if (typeof card === 'number') {
     if (card > 0 && card < 3) {
       return `Move a pawn on the track forward ${card} spaces, or move a pawn from Start onto the track.`
@@ -85,6 +91,9 @@ function formatCardFace(card) {
   if (card == null) return '—'
   if (card === 3) {
     return '3+3'
+  }
+  if (card === 4) {
+    return '4⚔︎'
   }
   if (typeof card === 'number' && card <= 2) {
     // Any numeric card less than or equal to 2 (including backward cards like
@@ -320,18 +329,31 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
   if (!pawn || !isOnTrack(pawn)) return { state, bumps: [] }
   let pos = pawn.index
   const bumps = []
+  let attackerBounced = false
 
   // Bump any pawn already on landing square
   for (const c of COLORS) {
     const list = state[c]
     list.forEach((otherPawn, idx) => {
+      if (attackerBounced) return
       if (c === color && idx === pawnIndex) return
       if (isOnTrack(otherPawn) && otherPawn.index === pos) {
-        otherPawn.region = 'start'
-        delete otherPawn.index
-        bumps.push({ attacker: color, victim: c })
+        if (otherPawn.shielded) {
+          // Bounce the moving pawn back to Start instead of the shielded pawn.
+          pawn.region = 'start'
+          delete pawn.index
+          attackerBounced = true
+        } else {
+          otherPawn.region = 'start'
+          delete otherPawn.index
+          bumps.push({ attacker: color, victim: c })
+        }
       }
     })
+  }
+
+  if (attackerBounced) {
+    return { state, bumps }
   }
 
   // Slides: if you land on the start of any slide, move to the end and bump
@@ -343,19 +365,31 @@ function applyBumpsAndSlides(state, color, pawnIndex) {
       if (pos >= s.start && pos <= s.end) {
         // Bump pawns only on the remaining slide squares ahead of the
         // landing position.
-        for (let i = pos + 1; i <= s.end; i++) {
+        for (let i = pos + 1; i <= s.end && !attackerBounced; i++) {
           for (const c of COLORS) {
             const list = state[c]
             list.forEach((otherPawn, idx) => {
+              if (attackerBounced) return
               if (c === color && idx === pawnIndex) return
               if (isOnTrack(otherPawn) && otherPawn.index === i) {
-                otherPawn.region = 'start'
-                delete otherPawn.index
-                bumps.push({ attacker: color, victim: c })
+                if (otherPawn.shielded) {
+                  pawn.region = 'start'
+                  delete pawn.index
+                  attackerBounced = true
+                } else {
+                  otherPawn.region = 'start'
+                  delete otherPawn.index
+                  bumps.push({ attacker: color, victim: c })
+                }
               }
             })
           }
         }
+
+        if (attackerBounced) {
+          return { state, bumps }
+        }
+
         pawn.index = s.end
         pos = s.end
         return { state, bumps }
@@ -966,6 +1000,16 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     const step = turnDirection === -1 ? -1 : 1
     const next = (turnIndex + step + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
+    // When a new player's turn begins, clear any shields on their pawns so
+    // protection only lasts until their next turn.
+    setPawns((prev) => {
+      const list = prev[nextColor] || []
+      const cleared = list.map((p) => (p && p.shielded ? { ...p, shielded: false } : p))
+      return {
+        ...prev,
+        [nextColor]: cleared,
+      }
+    })
     // Ding when it becomes a human player's turn.
     if (!effectiveAiColors || !effectiveAiColors.includes(nextColor)) {
       if (!isOnline || !localColor || nextColor === localColor) {
@@ -1232,11 +1276,30 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
 
             const w = getWinner(bumpedState)
             if (w) setWinnerAndLog(w)
+            // Mark 4-moves as shielded when they finish resolving.
+            if (cardValue === 4) {
+              const shieldedState = {
+                ...bumpedState,
+                [color]: bumpedState[color].map((p, i) =>
+                  i === pawnIndex && p ? { ...p, shielded: true } : p,
+                ),
+              }
+              return shieldedState
+            }
             return bumpedState
           }
 
           const w = getWinner(next)
           if (w) setWinnerAndLog(w)
+          if (cardValue === 4) {
+            const shieldedState = {
+              ...next,
+              [color]: next[color].map((p, i) =>
+                i === pawnIndex && p ? { ...p, shielded: true } : p,
+              ),
+            }
+            return shieldedState
+          }
           return next
         })
 
@@ -1527,11 +1590,15 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
               </p>
               <p>
                 Numeric cards move one of your pawns by their value (0 can only leave Start).
-                Any card that shows a * can move a pawn out of Start.
-                Sorry lets you leave Start by bumping an opponent pawn from the track back to
-                their Start. Swap trades one of your track pawns with an opponent&apos;s. Shuffle
-                discards your whole hand, draws three new cards for the same player, and
-                reverses the direction of play.
+                3+3 moves a pawn 3 spaces, fully resolves any bumps and slides, then (if
+                possible) moves that same pawn 3 more spaces from its new position. 4⚔︎ moves a
+                pawn 4 spaces and gives it temporary protection until your next turn; if an
+                opponent lands on or slides through that pawn, their pawn is bounced back to
+                Start instead. Any card that shows a * can move a pawn out of Start. Sorry lets
+                you leave Start by bumping an opponent pawn from the track back to their Start.
+                Swap trades one of your track pawns with an opponent&apos;s. Shuffle discards your
+                whole hand, draws three new cards for the same player, and reverses the
+                direction of play.
               </p>
               <p>
                 Landing on a slide start moves you to the end of the slide, bumping any

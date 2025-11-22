@@ -1,4 +1,4 @@
-export default function Pawn({ color, x, y, onClick, active }) {
+export default function Pawn({ color, x, y, onClick, active, shielded }) {
   const innerBase = 'w-3 h-3 sm:w-4 sm:h-4 flex items-center justify-center'
 
   let innerClass = innerBase
@@ -26,11 +26,11 @@ export default function Pawn({ color, x, y, onClick, active }) {
     innerClass += ' rounded-full bg-zinc-400'
   }
 
+  const ringClass = active ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900' : ''
+
   return (
     <div
-      className={`absolute w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white bg-zinc-900 shadow-md flex items-center justify-center cursor-pointer ${
-        active ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900' : ''
-      }`}
+      className={`absolute w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white bg-zinc-900 shadow-md flex items-center justify-center cursor-pointer ${ringClass}`}
       style={{
         left: `${x}%`,
         top: `${y}%`,
@@ -40,6 +40,11 @@ export default function Pawn({ color, x, y, onClick, active }) {
       onClick={onClick}
     >
       <div className={innerClass} style={innerStyle} />
+      {shielded && !active && (
+        <span className="absolute -top-2 sm:-top-2 text-[25px] sm:text-[25px] text-white-600 font-black select-none">
+          ⚔︎
+        </span>
+      )}
     </div>
   )
 }
