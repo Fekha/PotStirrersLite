@@ -382,7 +382,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const projections = useMemo(() => {
     if (isAnimating || winner) return {}
     if (currentCard === null || currentCard === undefined) return {}
-    if (!movable) return {}
+    if (!movable || !movable.indices || !movable.indices.length) return {}
     if (currentCard === 'Sorry' || currentCard === 'Shuffle' || currentCard === 'Swap') return {}
 
     const color = movable.color
@@ -501,6 +501,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   const effectiveAiColors = isOnline ? onlineAiColors : aiColors
 
+  const isAiTurnNow = effectiveAiColors && effectiveAiColors.includes(currentColor)
+  const isHumanLocalTurn = !isOnline || !localColor || currentColor === localColor
+  const canHumanActThisTurn = !winner && !isAnimating && !isAiTurnNow && isHumanLocalTurn
+
   // --- Simple AI opponents ---
   useEffect(() => {
     if (winner || isAnimating) return
@@ -508,19 +512,17 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // In online games, only the host client is responsible for running AI
     // turns to avoid duplicate moves.
     if (isOnline && !isHostClient) return
-
     const aiColor = currentColor
+
     if (!effectiveAiColors || !effectiveAiColors.includes(aiColor)) return
 
     // Per-turn gating: when we first see a new turnIndex, clear any previous
-    // AI action stage. For the same turnIndex, allow one resolved action
-    // (move/discard) but permit a single pre-action Shuffle that just
-    // rerolls the hand and then re-enters this effect.
+    // AI action stage. We no longer block on lastAiActionRef being 'resolved'
+    // because external syncs in online games can replay a turnIndex without
+    // rerunning this effect.
     if (lastAiTurnRef.current !== turnIndex) {
       lastAiTurnRef.current = turnIndex
       lastAiActionRef.current = 'none'
-    } else {
-      if (lastAiActionRef.current === 'resolved') return
     }
 
     // Need a hand to act on, and no card already selected this turn.
@@ -599,8 +601,12 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       return
     }
 
-    // Otherwise, discard the first available non-special card using existing logic.
-    const fallbackIndex = hand.findIndex((c) => typeof c === 'number' || c === 'Sorry' || c === 'Shuffle')
+    // Otherwise, discard the first available card that isn't strictly better
+    // to hold. Include Swap here so AI can get rid of dead Swaps instead of
+    // stalling when holding only Swap cards.
+    const fallbackIndex = hand.findIndex(
+      (c) => typeof c === 'number' || c === 'Sorry' || c === 'Shuffle' || c === 'Swap',
+    )
     if (fallbackIndex !== -1) {
       handleCardSelect(fallbackIndex, { skipPrompt: true })
       lastAiActionRef.current = 'resolved'
@@ -673,25 +679,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const card = hand[index]
     if (card == null) return
 
-    // In online games, only the client whose color matches the current turn
-    // may interact. The one exception is when the host is driving AI logic:
-    // in that case we allow calls that explicitly set skipPrompt, but still
-    // block human clicks for AI colors.
-    const isAiTurnForHost =
-      isOnline &&
-      isHostClient &&
-      effectiveAiColors &&
-      effectiveAiColors.includes(currentColor)
-    const isAiAction = isAiTurnForHost && skipPrompt
-
-    // If it's an AI color's turn in an online game, ignore any human clicks
-    // (skipPrompt=false). AI logic will call handleCardSelect with
-    // skipPrompt=true when it needs to drive a discard.
-    if (isOnline && effectiveAiColors && effectiveAiColors.includes(currentColor) && !skipPrompt) return
-
-    if (isOnline && localColor && currentColor !== localColor && !isAiAction) return
-
     const color = currentColor
+    const isAiColor = (isOnline ? onlineAiColors : aiColors).includes(color)
+    const isLocalHumanColor = !isOnline || !localColor || color === localColor
+    const shouldPromptDiscard = !skipPrompt && !isAiColor && isLocalHumanColor
 
     // 'Shuffle' discards the entire hand and deals three new cards for the same
     // player, without ending the turn. It also reverses the direction of play.
@@ -723,10 +714,15 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // swap their positions. If you have no track pawns, or there are no
     // opponent track pawns, it is discarded.
     if (card === 'Swap') {
+      const isAiAutoDiscard = isAiColor && skipPrompt
       const canSwap = hasSwapMove(pawns, color)
-      if (!canSwap) {
-        if (skipPrompt) {
-          pushLog(`${color} discarded Swap (no targets)`)
+
+      // For AI (skipPrompt) we never want to enter the interactive Swap flow,
+      // even if a legal swap exists. Treat it as a discard so AI turns cannot
+      // hang waiting for human pawn clicks.
+      if (!canSwap || isAiAutoDiscard) {
+        if (!shouldPromptDiscard) {
+          pushLog(`${color} discarded Swap${!canSwap ? ' (no targets)' : ''}`)
           play('draw')
           setCurrentCard(null)
           setSelectedIndex(null)
@@ -760,7 +756,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card === 'Sorry') {
       const canPlay = hasSorryMove(color, pawns)
       if (!canPlay) {
-        if (skipPrompt) {
+        if (!shouldPromptDiscard) {
           pushLog(`${color} discarded Sorry (no moves)`)
           play('draw')
           setCurrentCard(null)
@@ -789,7 +785,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       // No legal moves for this card.
       setCurrentCard(null)
       setSelectedIndex(null)
-      if (skipPrompt) {
+      if (!shouldPromptDiscard) {
         pushLog(`${color} discarded ${card} (no moves)`)
         play('draw')
         drawIntoHandSlot(index)
@@ -823,7 +819,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     const step = turnDirection === -1 ? -1 : 1
     const next = (turnIndex + step + COLORS.length) % COLORS.length
     const nextColor = COLORS[next]
-
     // Log explicit turn handoff so the log always shows which color is
     // actually up next.
     pushLog(`Turn passes to ${nextColor}`)
@@ -1042,6 +1037,10 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     // rather than using a generic falsy check.
     if (currentCard === null || currentCard === undefined || winner || isAnimating) return
 
+    // In both offline and online games, ignore pawn clicks when it is not a
+    // human-controlled turn (e.g. during AI turns).
+    if (!canHumanActThisTurn) return
+
     // In online games, only the client whose color matches the current turn
     // may move pawns.
     if (isOnline && localColor && currentColor !== localColor) return
@@ -1141,11 +1140,14 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         </div>
       </div>
       <div className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto max-w-md mx-auto">
-        {log.map((entry, i) => (
-          <div key={i} className="text-left text-zinc-300">
-            {entry}
-          </div>
-        ))}
+        {[...log]
+          .slice()
+          .reverse()
+          .map((entry, i) => (
+            <div key={i} className="text-left text-zinc-300">
+              {entry}
+            </div>
+          ))}
       </div>
       <GameBoard
         pawnsByColor={pawns}
@@ -1163,7 +1165,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
       <div className="flex justify-center gap-4 mt-4">
         {hand.map((card, index) => {
           const isSelected = selectedIndex === index
-          const disabled = winner || isAnimating
+          const disabled = !canHumanActThisTurn
           return (
             <button
               key={index}
