@@ -674,15 +674,22 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
     if (card == null) return
 
     // In online games, only the client whose color matches the current turn
-    // may interact – except that the host client is allowed to act for AI
-    // colors when it is their turn.
+    // may interact. The one exception is when the host is driving AI logic:
+    // in that case we allow calls that explicitly set skipPrompt, but still
+    // block human clicks for AI colors.
     const isAiTurnForHost =
       isOnline &&
       isHostClient &&
       effectiveAiColors &&
       effectiveAiColors.includes(currentColor)
+    const isAiAction = isAiTurnForHost && skipPrompt
 
-    if (isOnline && localColor && currentColor !== localColor && !isAiTurnForHost) return
+    // If it's an AI color's turn in an online game, ignore any human clicks
+    // (skipPrompt=false). AI logic will call handleCardSelect with
+    // skipPrompt=true when it needs to drive a discard.
+    if (isOnline && effectiveAiColors && effectiveAiColors.includes(currentColor) && !skipPrompt) return
+
+    if (isOnline && localColor && currentColor !== localColor && !isAiAction) return
 
     const color = currentColor
 
@@ -981,14 +988,6 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         ...prev,
         [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...frame } : { ...p })),
       }))
-
-      // In online games, only sync the very first frame so remote clients see
-      // movement start promptly; the final state is synced from the
-      // completion branch above. Intermediate frames remain local only to
-      // reduce write frequency.
-      if (isOnline && stepIndex === 0) {
-        setPendingSync(true)
-      }
 
       setTimeout(() => applyFrame(stepIndex + 1), stepMs)
     }
