@@ -83,6 +83,9 @@ function getCardInfo(card) {
 
 function formatCardFace(card) {
   if (card == null) return '—'
+  if (card === 3) {
+    return '3+3'
+  }
   if (typeof card === 'number' && card <= 2) {
     // Any numeric card less than or equal to 2 (including backward cards like
     // -1 and -6) can be used to leave Start, so we mark it with a '*'.
@@ -1073,6 +1076,128 @@ export default function GameScreen({ aiColors = [], gameCode = null, onExit = nu
     // '0' can only be used to leave Start; it has no effect on other pawns.
     if (isZeroCard && pawn.region !== 'start') return
 
+    // Special handling for 3: treat it as two sequential 3-step moves, each of
+    // which fully resolves bumps/slides, while keeping the animation
+    // continuous.
+    if (cardValue === 3) {
+      const firstSim = simulateMove(color, pawn, 3)
+      if (!firstSim.canMove) return
+
+      const firstFrames = getMoveFrames(color, pawn, 3)
+      if (!firstFrames.length) return
+
+      // Offline simulation of the board after the first 3 (including
+      // bumps/slides) so we know where the pawn really ends up for the second
+      // 3-step segment.
+      const tempState = {
+        ...pawns,
+        [color]: pawns[color].map((p) => (p ? { ...p } : p)),
+      }
+      const firstFinalPawn = firstFrames[firstFrames.length - 1]
+      tempState[color][pawnIndex] = { ...firstFinalPawn }
+      const { state: midState } = applyBumpsAndSlides(tempState, color, pawnIndex)
+      const startSecondPawn = midState[color][pawnIndex]
+
+      let secondFrames = []
+      if (startSecondPawn) {
+        const secondSim = simulateMove(color, startSecondPawn, 3)
+        if (secondSim.canMove) {
+          secondFrames = getMoveFrames(color, startSecondPawn, 3)
+        }
+      }
+
+      setIsAnimating(true)
+      const stepMs = 140
+
+      function finalizeSegment(finalPawn, isFinal) {
+        setPawns((prev) => {
+          const next = {
+            ...prev,
+            [color]: prev[color].map((p, i) => (i === pawnIndex ? { ...finalPawn } : { ...p })),
+          }
+
+          const moved = next[color][pawnIndex]
+          if (isOnTrack(moved)) {
+            const { state: bumpedState, bumps } = applyBumpsAndSlides(next, color, pawnIndex)
+            if (Array.isArray(bumps) && bumps.length) {
+              bumps.forEach(({ attacker, victim }) => {
+                if (attacker && victim && attacker !== victim) {
+                  pushLog(`${attacker} bumped ${victim}`, { color: attacker })
+                }
+              })
+            }
+
+            const w = getWinner(bumpedState)
+            if (w) setWinnerAndLog(w)
+            return bumpedState
+          }
+
+          const w = getWinner(next)
+          if (w) setWinnerAndLog(w)
+          return next
+        })
+
+        if (isFinal) {
+          setIsAnimating(false)
+          play('move')
+          if (typeof slotIndex === 'number') {
+            drawIntoHandSlot(slotIndex)
+          }
+          setSelectedIndex(null)
+          setCurrentCard(null)
+          advanceTurn()
+          if (isOnline) setPendingSync(true)
+        }
+      }
+
+      function animateFrames(frames, onDone) {
+        if (!frames.length) {
+          onDone()
+          return
+        }
+
+        const lastIndex = frames.length - 1
+
+        function step(i) {
+          if (i > lastIndex) {
+            onDone()
+            return
+          }
+
+          const frame = frames[i]
+          setPawns((prev) => ({
+            ...prev,
+            [color]: prev[color].map((p, idx) => (idx === pawnIndex ? { ...frame } : { ...p })),
+          }))
+
+          setTimeout(() => step(i + 1), stepMs)
+        }
+
+        step(0)
+      }
+
+      // Animate first 3, resolve bumps/slides, then (if we have a legal
+      // second segment) animate that and resolve again.
+      animateFrames(firstFrames, () => {
+        const firstFinal = firstFrames[firstFrames.length - 1]
+        finalizeSegment(firstFinal, false)
+
+        if (!secondFrames.length) {
+          // No legal second 3-step move; treat as a simple 3.
+          finalizeSegment(firstFinal, true)
+          return
+        }
+
+        animateFrames(secondFrames, () => {
+          const secondFinal = secondFrames[secondFrames.length - 1]
+          finalizeSegment(secondFinal, true)
+        })
+      })
+
+      return
+    }
+
+    // Default numeric handling for all other card values.
     const { canMove } = simulateMove(color, pawn, numeric)
     if (!canMove) return
 
