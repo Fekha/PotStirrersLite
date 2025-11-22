@@ -22,6 +22,44 @@ const COLOR_TEXT = {
   Green: 'text-emerald-300',
 }
 
+function getCardInfo(card) {
+  if (card === 'Shuffle') {
+    return 'Discard the entire hand and draw three new cards and reverse the direction of play.'
+  }
+  if (card === 'Swap') {
+    return 'Swap the positions of one of your pawns on the track with an opponent pawn on the track.'
+  }
+  if (card === 'Sorry') {
+    return 'Move a pawn from your Start onto the track, bumping an opponent pawn on the track back to their Start.'
+  }
+  if (card === 0) {
+    return 'Move a pawn from Start onto the track. It does not move pawns already on the track.'
+  }
+  if (card === -1) {
+    return 'Move one of your pawns on the track backward 1 space, or move a pawn from Start onto the track.'
+  }
+  if (card === -6) {
+    return 'Move one of your pawns on the track backward 6 spaces, or move a pawn from Start onto the track.'
+  }
+  if (typeof card === 'number') {
+    if (card > 0 && card < 3) {
+      return `Move a pawn on the track forward ${card} spaces, or move a pawn from Start onto the track.`
+    }
+    return `Move a pawn on the track forward ${card} spaces.`
+  }
+  return 'Special card.'
+}
+
+function formatCardFace(card) {
+  if (card == null) return '—'
+  if (typeof card === 'number' && card <= 2) {
+    // Any numeric card less than or equal to 2 (including backward cards like
+    // -1 and -6) can be used to leave Start, so we mark it with a '*'.
+    return `${card}*`
+  }
+  return String(card)
+}
+
 function buildDeck() {
   const deck = []
   for (let i = 0; i < 4; i++) deck.push(...BASE_DECK)
@@ -303,6 +341,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
   const [log, setLog] = useState([])
   const [hand, setHand] = useState([])
   const [selectedIndex, setSelectedIndex] = useState(null)
+  const [infoCard, setInfoCard] = useState(null)
 
   // Online multiplayer awareness: when a gameCode is provided and Firebase is
   // configured, we subscribe to the game document to discover seat assignments
@@ -1095,24 +1134,52 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
               type="button"
               onClick={() => handleCardSelect(index)}
               disabled={disabled}
-              className={`w-24 h-36 px-3 py-3 rounded border text-lg font-semibold disabled:opacity-40 flex items-center justify-center ${
+              className={`relative w-24 h-36 px-3 py-3 rounded border text-lg font-semibold disabled:opacity-40 flex items-center justify-center ${
                 isSelected
                   ? 'bg-blue-600 border-blue-300 text-white'
                   : 'bg-zinc-900 border-zinc-600 text-zinc-100'
               }`}
             >
-              {card ?? '—'}
+              {card != null && (
+                <span
+                  className="absolute top-1 right-1 text-[10px] px-4 py-2 rounded bg-zinc-800/80 border border-zinc-600 cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setInfoCard(card)
+                  }}
+                >
+                  ?
+                </span>
+              )}
+              <span className="pointer-events-none">{formatCardFace(card)}
+              </span>
             </button>
           )
         })}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4 pb-1">
-        Any numeric card less than 3 can move a pawn out of Start.
+        Any numeric card that has a * after it(Any card less than 3) can move a pawn out of Start.
         <br />
         Landing on any slide space moves you to the end.
         <br />
         Colored inner lanes are your home lanes – get all four of your pawns into your lane to win.
       </div>
+      {infoCard !== null && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-700 rounded-2xl px-5 py-4 shadow-xl text-center space-y-2 max-w-xs">
+            <div className="text-xs uppercase tracking-wide text-zinc-400">Card Info</div>
+            <div className="text-sm font-semibold text-zinc-100">{String(infoCard)}</div>
+            <div className="text-xs text-zinc-300 whitespace-pre-line">{getCardInfo(infoCard)}</div>
+            <button
+              type="button"
+              onClick={() => setInfoCard(null)}
+              className="mt-1 inline-flex items-center justify-center px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-500"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {winner && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-700 rounded-2xl px-6 py-4 shadow-xl text-center space-y-2">
