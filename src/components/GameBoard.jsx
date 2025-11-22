@@ -124,7 +124,7 @@ export default function GameBoard({
     let base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border border-zinc-700 bg-zinc-900/80'
 
     if (slide) {
-      base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border bg-zinc-900/80 ' + (slideColors[slide.color] || '')
+      base = 'absolute w-6 h-6 sm:w-8 sm:h-8 rounded-md border-2 bg-zinc-900/80 ' + (slideColors[slide.color] || '')
     }
 
     // Highlight the entry square into each color's home lane, using the
@@ -326,11 +326,7 @@ export default function GameBoard({
         <div className="absolute inset-2 border-2 border-zinc-700 rounded-3xl" />
 
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none space-y-1">
-          <span className="text-sm sm:text-base text-zinc-300">
-            Turn Direction:{' '}
-            <span className="font-semibold">{clockwise ? '↻' : '↺'}</span>
-          </span>
-          {isOnline && localColor ? (
+          {localColor ? (
             <span
               className={`text-sm sm:text-base ${
                 COLOR_TEXT[localColor] || 'text-zinc-200'
@@ -349,6 +345,10 @@ export default function GameBoard({
             >
               {winner || activeColor}
             </span>
+          </span>
+          <span className="text-sm sm:text-base text-zinc-300">
+            Turn Direction:{' '}
+            <span className="font-semibold">{clockwise ? '↻' : '↺'}</span>
           </span>
         </div>
 

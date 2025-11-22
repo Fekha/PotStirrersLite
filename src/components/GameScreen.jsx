@@ -364,6 +364,13 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
 
   const currentColor = COLORS[turnIndex]
 
+  // In local pass-and-play games, there is no online seating info. Expose a
+  // default "your color" so the board header still shows a label.
+  useEffect(() => {
+    if (isOnline) return
+    if (!localColor) setLocalColor(COLORS[0])
+  }, [isOnline, localColor])
+
   const movable = useMemo(() => {
     if (isAnimating || winner) return null
     return getMovableFor(currentCard, currentColor, pawns)
@@ -1104,7 +1111,7 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
           </button>
         </div>
       </div>
-      <div className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto">
+      <div className="mt-2 text-sm bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 space-y-0.5 h-32 overflow-y-auto max-w-md mx-auto">
         {log.map((entry, i) => (
           <div key={i} className="text-left text-zinc-300">
             {entry}
@@ -1158,11 +1165,11 @@ export default function GameScreen({ aiColors = [], gameCode = null } = {}) {
         })}
       </div>
       <div className="text-xs text-zinc-500 text-center px-4 pb-1">
-        Any card that has a * after it(Any card less than 3) can move a pawn out of Start.
+        Any card that has a * after it can move a pawn out of Start.
         <br />
         Landing on any slide space moves you to the end.
         <br />
-        Colored inner lanes are your home lanes – get all four of your pawns into your lane to win.
+        Get all four of your pawns into your colored inner lane to win.
       </div>
       {infoCard !== null && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
